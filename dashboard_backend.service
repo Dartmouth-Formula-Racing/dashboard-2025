@@ -1,0 +1,12 @@
+[Unit]
+Description=DFR Dashboard Backend Service
+After=network.target
+
+[Service]
+Type=idle
+Restart=on-failure
+User=root
+ExecStart=/bin/bash -c 'cd /home/pi/dashboard_2025/ && ./dashboard'
+
+[Install]
+WantedBy=basic.target

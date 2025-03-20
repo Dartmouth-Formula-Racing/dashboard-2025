@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DFR Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+</head>
+
+<body clas="position-relative">
+  <div class="container-fluid d-flex flex-column vh-100 m-0 p-0 text-bg-black bg-black">
+    <div class="mt-4">
+      <div class="row g-0 text-center">
+        <div id="faults" class="fs-5 col text-bg-success border-end border-black">No Faults</div>
+        <div id="bot" class="fs-5 col-1 text-bg-success border-start border-end border-black">BOT</div>
+        <div id="brb" class="fs-5 col-1 text-bg-success border-start border-end border-black">BRB</div>
+        <div id="imd" class="fs-5 col-1 text-bg-success border-start border-end border-black">IMD</div>
+        <div id="bms" class="fs-5 col-1 text-bg-success border-start border-end border-black">BMS</div>
+        <div id="cvc" class="fs-5 col-1 text-bg-success border-start border-end border-black">0ms</div>
+        <div id="drivestate" class="fs-5 col-3 text-bg-success border-start border-black">Drive</div>
+      </div>
+    </div>
+
+    <div class="flex-fill d-flex flex-column">
+      <div class="row flex-fill g-0">
+        <div class="col-3 d-flex flex-column text-center text-white">
+          <div class="flex-fill d-flex flex-column justify-content-center">
+            <div id="acctemp" class="fw-bold display-5">0.0 °C</div>
+            <div class="fs-5">Accumulator Temperature</div>
+          </div>
+          <div class="flex-fill d-flex flex-column justify-content-center">
+            <div id="leftinvtemp" class="fw-bold display-5">0.0 °C</div>
+            <div class="fs-5">Left Inverter Temperature</div>
+          </div>
+          <div class="flex-fill d-flex flex-column justify-content-center">
+            <div id="rightinvtemp" class="fw-bold display-5">0.0 °C</div>
+            <div class="fs-5">Right Inverter Temperature</div>
+          </div>
+        </div>
+        <!-- <div class="col-1 d-flex flex-column justify-content-center">
+          <div class="bg-dark flex-fill my-1 d-flex flex-column justify-content-center">
+            <div class="flex-fill position-relative rounded-3">
+              <div class="w-100 bg-danger position-absolute bottom-0 rounded-top-3" style="height: 38%;"></div>
+            </div>
+            <div class="bg-white py-1"></div>
+            <div class="flex-fill position-relative rounded-3">
+              <div class="w-100 bg-primary position-absolute top-0 rounded-bottom-3"></div>
+            </div>
+
+          </div>
+          <div class="text-center text-white">Energy Flow</div>
+        </div> -->
+        <div class="col-1 d-flex flex-column justify-content-center">
+          <div class="bg-dark flex-fill my-1 position-relative rounded-3">
+            <div id="throttlebar" class="position-absolute bottom-0 w-100 bg-primary rounded-3" style="height: 0.0%;">
+            </div>
+            <div id="throttleval" class="position-absolute top-50 start-50 translate-middle text-white fw-bold fs-6">
+              0.0%
+            </div>
+          </div>
+          <div class="text-center text-white">Throttle</div>
+        </div>
+        <div class="col-4 d-flex flex-column justify-content-center">
+          <!-- <div class="flex-fill m-1"></div> -->
+          <div class="flex-fill"></div>
+          <div id="rpm" class="text-white display-4 text-center fw-bold">0 RPM</div>
+          <div id="speed" class="text-white display-4 text-center fw-bold">0.0 MPH</div>
+          <div class="flex-fill"></div>
+          <div id="lap" class="text-white display-4 text-center fw-bold">Lap 0</div>
+          <div id="laptime" class="text-white fs-5 text-center">Lap time: 00:00.00</div>
+          <div class="flex-fill"></div>
+        </div>
+        <div class="col-1 d-flex flex-column justify-content-center">
+          <div class="bg-dark flex-fill my-1 position-relative rounded-3">
+            <div id="batterybar" class="position-absolute bottom-0 w-100 bg-primary rounded-3" style="height: 0.0%;">
+            </div>
+            <div id="batteryval" class="position-absolute top-50 start-50 translate-middle text-white fw-bold fs-6">0.0%
+            </div>
+          </div>
+          <div class="text-center text-white">Battery</div>
+        </div>
+        <div class="col-3 d-flex flex-column text-center text-white">
+          <div class="flex-fill d-flex flex-column justify-content-center">
+            <div id="hvvoltage" class="fw-bold display-5">0.0 V</div>
+            <div class="fs-5">Accumulator Voltage</div>
+          </div>
+          <div class="flex-fill d-flex flex-column justify-content-center">
+            <div id="acccurrent" class="fw-bold display-5">0.0 A</div>
+            <div class="fs-5">Accumulator Current</div>
+          </div>
+          <div class="flex-fill d-flex flex-column justify-content-center">
+            <div id="range" class="fw-bold display-5">0.0 mi</div>
+            <div class="fs-5">Estimated Range Remaining</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-4">
+      <div class="row g-0 text-center">
+        <div id="tractioncontrol" class="fs-5 col-4 text-bg-dark border-end border-black">Traction Control Off</div>
+        <div id="mileage" class="fs-5 col-4 text-bg-dark border-start border-end border-black">0.0 Miles</div>
+        <div id="vehiclestate" class="fs-5 col-4 text-bg-danger border-start border-black">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+
+</html>
