@@ -150,6 +150,11 @@ void setupGPIO() {
     pinMode(BUTTON_NEUTRAL_PIN, INPUT);
     pinMode(BUTTON_REVERSE_PIN, INPUT);
 
+    // Set up internal pull-up resistors for buttons.
+    pullUpDnControl(BUTTON_DRIVE_PIN, PUD_UP);
+    pullUpDnControl(BUTTON_NEUTRAL_PIN, PUD_UP);
+    pullUpDnControl(BUTTON_REVERSE_PIN, PUD_UP);
+
     // Configure LED pins as output.
     pinMode(LED_DRIVE_PIN, OUTPUT);
     pinMode(LED_NEUTRAL_PIN, OUTPUT);
@@ -182,9 +187,9 @@ void processButtons(int can_socket) {
     auto now = std::chrono::steady_clock::now();
 
     // Read all three buttons.
-    bool drive_pressed = (digitalRead(BUTTON_DRIVE_PIN) == HIGH);
-    bool neutral_pressed = (digitalRead(BUTTON_NEUTRAL_PIN) == HIGH);
-    bool reverse_pressed = (digitalRead(BUTTON_REVERSE_PIN) == HIGH);
+    bool drive_pressed = (digitalRead(BUTTON_DRIVE_PIN) == LOW);
+    bool neutral_pressed = (digitalRead(BUTTON_NEUTRAL_PIN) == LOW);
+    bool reverse_pressed = (digitalRead(BUTTON_REVERSE_PIN) == LOW);
 
     // Update LEDs accordingly.
     digitalWrite(LED_DRIVE_PIN, drive_pressed ? HIGH : LOW);
