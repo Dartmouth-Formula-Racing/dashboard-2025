@@ -83,6 +83,16 @@ int main() {
                 struct can_frame frame;
                 ssize_t nbytes = read(can_socket, &frame, sizeof(struct can_frame));
                 if (nbytes > 0) {
+                    // Successfully read a CAN frame.
+                    // Print frame contents
+                    std::cout << "Received CAN frame: ID=" << std::hex << frame.can_id
+                              << " DLC=" << std::dec << static_cast<int>(frame.can_dlc)
+                              << " Data=";
+                    for (int j = 0; j < frame.can_dlc; ++j) {
+                        std::cout << std::hex << static_cast<int>(frame.data[j]) << " ";
+                    }
+                    std::cout << std::dec << std::endl;
+
                     // Decode the frame using the proper parser.
                     parseFrame(frame);
                 }
@@ -483,6 +493,7 @@ void parseFrame(const struct can_frame &frame) {
 }
 
 void initializeCAN() {
+    std::cout << "Resetting CAN controller and transceiver" << std::endl;
     // Put chip in reset and standby mode.
     digitalWrite(CAN_NRST_GPIO, LOW);
     digitalWrite(CAN_STBY_GPIO, HIGH);
@@ -491,6 +502,8 @@ void initializeCAN() {
     // Pull chip out of reset.
     digitalWrite(CAN_NRST_GPIO, HIGH);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    std::cout << "CAN controller enabled" << std::endl;
 
     // Bring up the CAN interface via system calls.
     // Note: SocketCAN typically needs the interface to be up. Depending on your system setup,
@@ -501,4 +514,6 @@ void initializeCAN() {
 
     // Pull chip out of standby mode.
     digitalWrite(CAN_STBY_GPIO, LOW);
+
+    std::cout << "CAN transceiver enabled" << std::endl;
 }
