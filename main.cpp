@@ -202,22 +202,15 @@ void processButtons(int can_socket) {
     }
 
     // Static variables to track last sent mode and time.
-    static int last_mode = -1;
     static auto last_sent_time = std::chrono::steady_clock::now();
 
-    // If any button is pressed (mode != -1), send a CAN command if mode changed
-    // or the send interval has elapsed.
-    if (mode != -1) {
+    // Send command if a button has been pressed and it has been long enough since last send
+    if (neutral_pressed || drive_pressed || reverse_pressed) {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_sent_time).count();
-        if (mode != last_mode || duration >= SEND_INTERVAL_MS) {
+        if (duration >= SEND_INTERVAL_MS) {
             sendDriveModeCommand(can_socket, mode);
             last_sent_time = now;
-            last_mode = mode;
         }
-    } else {
-        // If no buttons are pressed, reset last_mode.
-        last_mode = -1;
-        last_sent_time = now;
     }
 }
 
