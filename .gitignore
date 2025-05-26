@@ -36,3 +36,7 @@
 
 # Websocket++
 websocketpp*
+
+*.o
+can_server
+dash
