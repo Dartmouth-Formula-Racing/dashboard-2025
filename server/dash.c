@@ -137,6 +137,7 @@ int create_can_socket() {
 
 // Queue management functions
 int rx_queue_put(struct can_frame* frame) {
+
     pthread_mutex_lock(&shared_state->rx_mutex);
     
     int next_head = (shared_state->rx_head + 1) % MAX_CAN_MESSAGES;
@@ -159,6 +160,7 @@ int rx_queue_get(struct can_frame* frame) {
     
     if (shared_state->rx_head == shared_state->rx_tail) {
         // Queue empty
+        printf("Can Message queue is empty\r\n");
         pthread_mutex_unlock(&shared_state->rx_mutex);
         return -1;
     }
@@ -306,8 +308,9 @@ int send_can_message(uint32_t id, uint8_t* data, uint8_t len) {
 // Helper function to receive CAN message
 int receive_can_message(uint32_t* id, uint8_t* data, uint8_t* len) {
     struct can_frame frame;
-    
+    printf("Entered receive_can_message\r\n");
     if (rx_queue_get(&frame) == 0) {
+        printf("Entered rx_queue_get\r\n");
         *id = frame.can_id;
         *len = frame.can_dlc;
         memcpy(data, frame.data, frame.can_dlc);
@@ -332,56 +335,6 @@ int init_shared_state() {
     
     return 0;
 }
-
-// Initialize GPIO pins
-int init_gpio() {
-    if (gpioInitialise() < 0) {
-        fprintf(stderr, "Failed to initialize pigpio library\n");
-        return -1;
-    }
-
-    // Set up output pins
-    gpioSetMode(BMS_LED_GPIO, PI_OUTPUT);
-    gpioSetMode(IMD_LED_GPIO, PI_OUTPUT);
-    gpioSetMode(CAN_NRST_GPIO, PI_OUTPUT);
-    gpioSetMode(CAN_STBY_GPIO, PI_OUTPUT);
-    gpioSetMode(DRIVE_LED_GPIO, PI_OUTPUT);
-    gpioSetMode(NEUTRAL_LED_GPIO, PI_OUTPUT);
-    gpioSetMode(REVERSE_LED_GPIO, PI_OUTPUT);
-
-    // Set up input pins with pull-up resistors 
-    // Not needed in the new dashboard
-
-    // gpioSetMode(DRIVE_BUTTON_GPIO, PI_INPUT);
-    // gpioSetPullUpDown(DRIVE_BUTTON_GPIO, PI_PUD_UP);
-    
-    // gpioSetMode(NEUTRAL_BUTTON_GPIO, PI_INPUT);
-    // gpioSetPullUpDown(NEUTRAL_BUTTON_GPIO, PI_PUD_UP);
-    
-    // gpioSetMode(REVERSE_BUTTON_GPIO, PI_INPUT);
-    // gpioSetPullUpDown(REVERSE_BUTTON_GPIO, PI_PUD_UP);
-
-    // Set up interrupt callbacks for buttons (trigger on both edges)
-    // don't need it in the new dashboard
-    // drive_button.pin = DRIVE_BUTTON_GPIO;
-    // neutral_button.pin = NEUTRAL_BUTTON_GPIO;
-    // reverse_button.pin = REVERSE_BUTTON_GPIO;
-    
-    // gpioSetISRFunc(DRIVE_BUTTON_GPIO, EITHER_EDGE, 0, button_callback);
-    // gpioSetISRFunc(NEUTRAL_BUTTON_GPIO, EITHER_EDGE, 0, button_callback);
-    // gpioSetISRFunc(REVERSE_BUTTON_GPIO, EITHER_EDGE, 0, button_callback);
-
-    // Set initial LED states (1 = ON), we can change it to 0
-    gpioWrite(DRIVE_LED_GPIO, 1);
-    gpioWrite(NEUTRAL_LED_GPIO, 1);
-    gpioWrite(REVERSE_LED_GPIO, 1);
-    gpioWrite(BMS_LED_GPIO, 1);
-    gpioWrite(IMD_LED_GPIO, 1);
-
-    printf("GPIO initialized successfully\n");
-    return 0;
-}
-
 
 // Cleanup function
 void cleanup() {
@@ -413,7 +366,7 @@ int main() {
     signal(SIGTERM, signal_handler);
     
     // Initialize pigpio
-    if (init_gpio() < 0) {
+    if (gpioInitialise() < 0) {
         fprintf(stderr, "Failed to initialize pigpio\n");
         return -1;
     }
