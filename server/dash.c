@@ -255,10 +255,13 @@ void button_callback(int gpio, int level, uint32_t tick) {
     
     // Determine which button was pressed
     if (gpio == DRIVE_BUTTON_GPIO) {
+        printf("Drive button pressed\n\r");
         btn = &drive_button;
     } else if (gpio == NEUTRAL_BUTTON_GPIO) {
+        printf("Neutral button pressed\n\r");
         btn = &neutral_button;
     } else if (gpio == REVERSE_BUTTON_GPIO) {
+        printf("Reverse button pressed\n\r");
         btn = &reverse_button;
     }
     
@@ -266,6 +269,7 @@ void button_callback(int gpio, int level, uint32_t tick) {
     
     // Simple debouncing
     if ((tick - btn->last_change_time) > BUTTON_DEBOUNCE_TIME) {
+        printf("Button debounced\n\r");
         if (level != btn->debounced_state) {
             btn->debounced_state = level;
             btn->last_change_time = tick;
@@ -273,10 +277,13 @@ void button_callback(int gpio, int level, uint32_t tick) {
             // Only trigger on button press (falling edge, level = 0)
             if (level == 0) {
                 if (gpio == DRIVE_BUTTON_GPIO) {
+                    printf("Drive Message Sending\n\r");
                     send_button_message(0); // Drive
                 } else if (gpio == NEUTRAL_BUTTON_GPIO) {
+                    printf("Neutral Message Sending\n\r");
                     send_button_message(1); // Neutral
                 } else if (gpio == REVERSE_BUTTON_GPIO) {
+                    printf("reverse Message Sending\n\r");
                     send_button_message(2); // Reverse
                 }
             }
@@ -588,7 +595,7 @@ void cleanup() {
 // Function to send button press messages
 int send_button_message(int button_type) {
     uint8_t button_data[8] = {0};
-    uint32_t button_msg_id = CAN_BASE_ID + 10; // Assuming button messages use this ID
+    uint32_t button_msg_id = CAN_BASE_ID; // Assuming button messages use this ID
     
     switch(button_type) {
         case 0: // Drive button
