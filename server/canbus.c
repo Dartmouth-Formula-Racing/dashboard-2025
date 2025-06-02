@@ -15,7 +15,10 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include "config.h"
+#include "canbus.h"
 #include <math.h>
+#include "websocket_server.h"
+
 
 #define CAN_RECV_TIMEOUT_US 1000    // 1ms timeout in microseconds
 #define CAN_BITRATE 500000
@@ -42,37 +45,37 @@ static button_state_t reverse_button = {1, 0, 1, 0};
 // Add these structures and variables after your existing includes and before main()
 
 // Vehicle state structure to match Python state dictionary
-typedef struct {
-    // BMS and safety states
-    int bms;
-    int imd;
-    int bot;
-    int brb;
-    int cvc_overflow;
-    int cvc_time;
+// typedef struct {
+//     // BMS and safety states
+//     int bms;
+//     int imd;
+//     int bot;
+//     int brb;
+//     int cvc_overflow;
+//     int cvc_time;
     
-    // Drive states
-    char drive_state[20];
-    char vehicle_state[30];
+//     // Drive states
+//     char drive_state[20];
+//     char vehicle_state[30];
     
-    // Temperature data
-    float leftinvtemp;
-    float rightinvtemp;
-    float acctemp;
+//     // Temperature data
+//     float leftinvtemp;
+//     float rightinvtemp;
+//     float acctemp;
     
-    // Driving data
-    float throttle_position;
-    int rpm;
-    float speed;
-    float mileage;
+//     // Driving data
+//     float throttle_position;
+//     int rpm;
+//     float speed;
+//     float mileage;
     
-    // Battery data
-    float accumulator_voltage;
-    float accumulator_current;
-    float battery_percentage;
-} vehicle_state_t;
+//     // Battery data
+//     float accumulator_voltage;
+//     float accumulator_current;
+//     float battery_percentage;
+// } vehicle_state_t;
 
-static vehicle_state_t vehicle_state = {0};
+vehicle_state_t vehicle_state = {0};
 void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_extended);
 void signal_handler(int sig);
 void button_callback(int gpio, int level, uint32_t tick);
@@ -223,23 +226,23 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
 }
 
 // Shared memory structures for IPC
-typedef struct {
-    struct can_frame frame;
-    int valid;
-} can_message_t;
+// typedef struct {
+//     struct can_frame frame;
+//     int valid;
+// } can_message_t;
 
-typedef struct {
-    can_message_t rx_messages[MAX_CAN_MESSAGES];
-    can_message_t tx_messages[MAX_CAN_MESSAGES];
-    int rx_head, rx_tail;
-    int tx_head, tx_tail;
-    int can_connected;
-    volatile int running;
-    pthread_mutex_t rx_mutex;
-    pthread_mutex_t tx_mutex;
-} shared_state_t;
+// typedef struct {
+//     can_message_t rx_messages[MAX_CAN_MESSAGES];
+//     can_message_t tx_messages[MAX_CAN_MESSAGES];
+//     int rx_head, rx_tail;
+//     int tx_head, tx_tail;
+//     int can_connected;
+//     volatile int running;
+//     pthread_mutex_t rx_mutex;
+//     pthread_mutex_t tx_mutex;
+// } shared_state_t;
 
-static shared_state_t* shared_state = NULL;
+shared_state_t* shared_state = NULL;
 static int can_socket = -1;
 
 // Signal handler
@@ -672,6 +675,7 @@ int init_gpio() {
 // Example usage in main function
 int main() {
     pthread_t can_thread;
+    pthread_t ws_thread;
     struct can_frame rx_frame;
     uint32_t msg_id;
     uint8_t msg_data[8];
@@ -702,6 +706,14 @@ int main() {
         gpioTerminate();
         return -1;
     }
+
+    // Start websocket thread
+    if (pthread_create(&ws_thread, NULL, websocket_server, NULL) != 0) {
+    fprintf(stderr, "Failed to create WebSocket thread\n");
+    cleanup();
+    gpioTerminate();
+    return -1;
+}
     
     printf("CAN system initialized. Main loop starting...\n");
     
@@ -745,6 +757,9 @@ int main() {
     
     // Wait for CAN thread to finish
     pthread_join(can_thread, NULL);
+    // Wait for Websocket thread to finish
+    pthread_join(ws_thread, NULL);
+
     
     cleanup();
     gpioTerminate();
