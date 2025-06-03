@@ -598,16 +598,16 @@ void cleanup() {
 // Function to send button press messages
 int send_button_message(int button_type) {
     uint8_t button_data[8] = {0};
-    uint32_t button_msg_id = CAN_BASE_ID; // Assuming button messages use this ID
+    uint32_t button_msg_id = CAN_BASE_ID + 0; // Assuming button messages use this ID
     
     switch(button_type) {
-        case 0: // Drive button
-            button_data[0] = 1; // Drive command
-            printf("Sending DRIVE button command\n");
-            break;
-        case 1: // Neutral button
+        case 0: // Neutral button
             button_data[0] = 0; // Neutral command
             printf("Sending NEUTRAL button command\n");
+            break;
+        case 1: // Drive button
+            button_data[0] = 1; // Drive command
+            printf("Sending DRIVE button command\n");
             break;
         case 2: // Reverse button
             button_data[0] = 2; // Reverse command
@@ -733,14 +733,17 @@ int main() {
             process_can_message(msg_id, msg_data, msg_len, is_extended);
         }
 
-        if (gpioRead(NEUTRAL_BUTTON_GPIO)) {
+        if (!gpioRead(NEUTRAL_BUTTON_GPIO)) {
             printf("N\n");
+            send_button_message(0);
         }
-        if (gpioRead(DRIVE_BUTTON_GPIO)) {
+        else if (!gpioRead(DRIVE_BUTTON_GPIO)) {
             printf("D\n");
+            send_button_message(1);
         }
-        if (gpioRead(REVERSE_BUTTON_GPIO)) {
+        else if (!gpioRead(REVERSE_BUTTON_GPIO)) {
             printf("R\n");
+            send_button_message(2);
         }
         
         // // Example: Send periodic CAN message
