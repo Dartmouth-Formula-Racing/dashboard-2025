@@ -403,7 +403,7 @@ int rx_queue_get(struct can_frame* frame) {
     
     if (shared_state->rx_head == shared_state->rx_tail) {
         // Queue empty
-        printf("Can Message queue is empty\r\n");
+        // printf("Can Message queue is empty\r\n");
         pthread_mutex_unlock(&shared_state->rx_mutex);
         return -1;
     }
@@ -551,9 +551,9 @@ int send_can_message(uint32_t id, uint8_t* data, uint8_t len) {
 // Helper function to receive CAN message
 int receive_can_message(uint32_t* id, uint8_t* data, uint8_t* len) {
     struct can_frame frame;
-    printf("Entered receive_can_message\r\n");
+    // printf("Entered receive_can_message\r\n");
     if (rx_queue_get(&frame) == 0) {
-        printf("Entered rx_queue_get\r\n");
+        // printf("Entered rx_queue_get\r\n");
         *id = frame.can_id;
         *len = frame.can_dlc;
         memcpy(data, frame.data, frame.can_dlc);
@@ -721,11 +721,11 @@ int main() {
     while (shared_state->running) {
         // Check for received CAN messages and process them
         if (receive_can_message(&msg_id, msg_data, &msg_len) == 0) {
-            printf("Received CAN message: ID=0x%03X, len=%d, data=", msg_id, msg_len);
-            for (int i = 0; i < msg_len; i++) {
-                printf("%02X ", msg_data[i]);
-            }
-            printf("\n");
+           // printf("Received CAN message: ID=0x%03X, len=%d, data=", msg_id, msg_len);
+            // for (int i = 0; i < msg_len; i++) {
+            //     printf("%02X ", msg_data[i]);
+            // }
+           // printf("\n");
             int is_extended = (msg_id & CAN_EFF_FLAG) ? 1 : 0;
             msg_id &= ~(CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_ERR_FLAG);
             
