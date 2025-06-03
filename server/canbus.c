@@ -113,7 +113,7 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
             float temp_C = module_C_temp / 10.0f;
             
             vehicle_state.leftinvtemp = fmaxf(fmaxf(temp_A, temp_B), temp_C);
-            printf("Left Inverter Temp: %.1f°C\n", vehicle_state.leftinvtemp);
+            // printf("Left Inverter Temp: %.1f°C\n", vehicle_state.leftinvtemp);
         }
         else if (msg_id == CAN_INVERTER2_BASE + 0) { // Inverter 2 temperatures 1
             int16_t module_A_temp = (data[1] << 8) | data[0];
@@ -129,7 +129,7 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
             float temp_C = module_C_temp / 10.0f;
             
             vehicle_state.rightinvtemp = fmaxf(fmaxf(temp_A, temp_B), temp_C);
-            printf("Right Inverter Temp: %.1f°C\n", vehicle_state.rightinvtemp);
+            // printf("Right Inverter Temp: %.1f°C\n", vehicle_state.rightinvtemp);
         }
     }
     else {
@@ -185,9 +185,9 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
             gpioWrite(BMS_LED_GPIO, vehicle_state.bms ? 0 : 1);
             gpioWrite(IMD_LED_GPIO, vehicle_state.imd ? 0 : 1);
             
-            printf("Vehicle State: %s, Drive: %s, BMS: %d, IMD: %d\n", 
-                   vehicle_state.vehicle_state, vehicle_state.drive_state, 
-                   vehicle_state.bms, vehicle_state.imd);
+            // printf("Vehicle State: %s, Drive: %s, BMS: %d, IMD: %d\n", 
+                //    vehicle_state.vehicle_state, vehicle_state.drive_state, 
+                //    vehicle_state.bms, vehicle_state.imd);
         }
         else if (msg_id == CAN_BASE_ID + 2) { // Driving data
             vehicle_state.throttle_position = ((data[0] << 8) | data[1]) / 10.0f;
@@ -205,22 +205,22 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
         else if (msg_id == CAN_BMS_BASE + 1) { // BMS pack voltage
             vehicle_state.accumulator_voltage = ((data[5] << 24) | (data[6] << 16) | 
                                                (data[3] << 8) | data[4]) / 100.0f;
-            printf("Accumulator Voltage: %.2f V\n", vehicle_state.accumulator_voltage);
+            // printf("Accumulator Voltage: %.2f V\n", vehicle_state.accumulator_voltage);
         }
         else if (msg_id == CAN_BMS_BASE + 5) { // BMS current
             uint16_t current_bytes = (data[0] << 8) | data[1];
             int16_t current_value = (current_bytes > 32767) ? current_bytes - 65536 : current_bytes;
             vehicle_state.accumulator_current = current_value / 10.0f;
-            printf("Accumulator Current: %.1f A\n", vehicle_state.accumulator_current);
+            // printf("Accumulator Current: %.1f A\n", vehicle_state.accumulator_current);
         }
         else if (msg_id == CAN_BMS_BASE + 16) { // BMS state of charge
             uint16_t soc_bytes = (data[2] << 8) | data[3];
             vehicle_state.battery_percentage = soc_bytes / 100.0f;
-            printf("Battery SOC: %.1f%%\n", vehicle_state.battery_percentage);
+            // printf("Battery SOC: %.1f%%\n", vehicle_state.battery_percentage);
         }
         else if (msg_id == CAN_BMS_BASE + 8) { // BMS cell temperatures
             vehicle_state.acctemp = data[1] - 100; // Temperature in Celsius
-            printf("Accumulator Temp: %.0f°C\n", vehicle_state.acctemp);
+            // printf("Accumulator Temp: %.0f°C\n", vehicle_state.acctemp);
         }
     }
 }
@@ -272,7 +272,7 @@ void button_callback(int gpio, int level, uint32_t tick) {
     
     // Simple debouncing
     if ((tick - btn->last_change_time) > BUTTON_DEBOUNCE_TIME) {
-        printf("Button debounced\n\r");
+        // printf("Button debounced\n\r");
         if (level != btn->debounced_state) {
             btn->debounced_state = level;
             btn->last_change_time = tick;
