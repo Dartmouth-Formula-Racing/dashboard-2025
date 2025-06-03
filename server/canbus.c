@@ -182,8 +182,8 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
             }
             
             // Update BMS and IMD LEDs
-            gpioWrite(BMS_LED_GPIO, vehicle_state.bms ? 1 : 0);
-            gpioWrite(IMD_LED_GPIO, vehicle_state.imd ? 1 : 0);
+            gpioWrite(BMS_LED_GPIO, vehicle_state.bms ? 0 : 1);
+            gpioWrite(IMD_LED_GPIO, vehicle_state.imd ? 0 : 1);
             
             printf("Vehicle State: %s, Drive: %s, BMS: %d, IMD: %d\n", 
                    vehicle_state.vehicle_state, vehicle_state.drive_state, 
