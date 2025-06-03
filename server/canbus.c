@@ -656,9 +656,9 @@ int init_gpio() {
     neutral_button.pin = NEUTRAL_BUTTON_GPIO;
     reverse_button.pin = REVERSE_BUTTON_GPIO;
     
-    gpioSetISRFunc(DRIVE_BUTTON_GPIO, EITHER_EDGE, 0, button_callback);
-    gpioSetISRFunc(NEUTRAL_BUTTON_GPIO, EITHER_EDGE, 0, button_callback);
-    gpioSetISRFunc(REVERSE_BUTTON_GPIO, EITHER_EDGE, 0, button_callback);
+    gpioSetISRFunc(DRIVE_BUTTON_GPIO, FALLING_EDGE, 0, button_callback);
+    gpioSetISRFunc(NEUTRAL_BUTTON_GPIO, FALLING_EDGE, 0, button_callback);
+    gpioSetISRFunc(REVERSE_BUTTON_GPIO, FALLING_EDGE, 0, button_callback);
 
     // Set initial LED states (1 = ON), we can change it to 0
     gpioWrite(DRIVE_LED_GPIO, 1);
@@ -731,6 +731,16 @@ int main() {
             
             // Process the message using our new function
             process_can_message(msg_id, msg_data, msg_len, is_extended);
+        }
+
+        if (gpioRead(NEUTRAL_BUTTON_GPIO)) {
+            printf("N\n");
+        }
+        if (gpioRead(DRIVE_BUTTON_GPIO)) {
+            printf("D\n");
+        }
+        if (gpioRead(REVERSE_BUTTON_GPIO)) {
+            printf("R\n");
         }
         
         // // Example: Send periodic CAN message
