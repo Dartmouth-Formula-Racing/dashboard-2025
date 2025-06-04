@@ -680,6 +680,7 @@ int main() {
     uint32_t msg_id;
     uint8_t msg_data[8];
     uint8_t msg_len;
+    uint64_t last_button = 0;
     
     printf("Racing CAN System Starting...\n");
     
@@ -733,17 +734,22 @@ int main() {
             process_can_message(msg_id, msg_data, msg_len, is_extended);
         }
 
-        if (!gpioRead(NEUTRAL_BUTTON_GPIO)) {
-            printf("N\n");
-            send_button_message(0);
-        }
-        else if (!gpioRead(DRIVE_BUTTON_GPIO)) {
-            printf("D\n");
-            send_button_message(1);
-        }
-        else if (!gpioRead(REVERSE_BUTTON_GPIO)) {
-            printf("R\n");
-            send_button_message(2);
+        struct timeval tv;
+        gettimeofday(&tv, 0);
+        if (tv.tv_usec - last_button >= 50000) {
+            if (!gpioRead(NEUTRAL_BUTTON_GPIO)) {
+                printf("N\n");
+                send_button_message(0);
+            }
+            else if (!gpioRead(DRIVE_BUTTON_GPIO)) {
+                printf("D\n");
+                send_button_message(1);
+            }
+            else if (!gpioRead(REVERSE_BUTTON_GPIO)) {
+                printf("R\n");
+                send_button_message(2);
+            }
+            last_button = tv.tv_usec;
         }
         
         // // Example: Send periodic CAN message
