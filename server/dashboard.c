@@ -1,22 +1,30 @@
 #include <pigpio.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
-#include <sys/time.h>
-#include <signal.h>
-#include <pthread.h>
+#include <string.h>
 #include <sys/socket.h>
-
-#include <linux/can/raw.h>
-#include <errno.h>
-#include <sys/wait.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
-
-// Assuming the pin numbers are defined in our config header
+#include <linux/can.h>
+#include <linux/can/raw.h>
+#include <pthread.h>
+#include <signal.h>
+#include <errno.h>
+#include <sys/time.h>
+#include <sys/wait.h>
+#include <fcntl.h>
 #include "config.h"
+#include "canbus.h"
+#include <math.h>
+#include "websocket_server.h"
 
+
+#define CAN_RECV_TIMEOUT_US 1000    // 1ms timeout in microseconds
+#define CAN_BITRATE 500000
+#define CAN_RESTART_MS 20
+#define CAN_TXQUEUE_LEN 65536
+#define MAX_CAN_MESSAGES 1000
 #define BUTTON_DEBOUNCE_TIME 50000  // microseconds (50ms)
 #define BUTTON_SEND_INTERVAL 50000  // microseconds (50ms)
 
@@ -34,28 +42,184 @@ static button_state_t drive_button = {1, 0, 1, 0};      // Will be set to actual
 static button_state_t neutral_button = {1, 0, 1, 0};
 static button_state_t reverse_button = {1, 0, 1, 0};
 
-// Signal handler for clean shutdown
-void signal_handler(int sig) {
-    running = 0;
+vehicle_state_t vehicle_state = {0};
+void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_extended);
+void signal_handler(int sig);
+void button_callback(int gpio, int level, uint32_t tick);
+int create_can_socket(); 
+int rx_queue_put(struct can_frame* frame);
+int rx_queue_get(struct can_frame* frame);
+int tx_queue_put(struct can_frame* frame);
+int tx_queue_get(struct can_frame* frame);
+void* can_process(void* arg);
+int send_can_message(uint32_t id, uint8_t* data, uint8_t len);
+int receive_can_message(uint32_t* id, uint8_t* data, uint8_t* len);
+int init_shared_state();
+void cleanup() ;
+int send_button_message(int button_type);
+int init_gpio();
+
+// Function to process received CAN messages (based on your Python logic)
+void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_extended) {
+    if (is_extended) {
+        // Extended ID messages (inverter temperatures)
+        if (msg_id == CAN_INVERTER1_BASE + 0) { // Inverter 1 temperatures 1
+            int16_t module_A_temp = (data[1] << 8) | data[0];
+            module_A_temp = (module_A_temp > 32767) ? module_A_temp - 65536 : module_A_temp;
+            float temp_A = module_A_temp / 10.0f;
+            
+            int16_t module_B_temp = (data[3] << 8) | data[2];
+            module_B_temp = (module_B_temp > 32767) ? module_B_temp - 65536 : module_B_temp;
+            float temp_B = module_B_temp / 10.0f;
+            
+            int16_t module_C_temp = (data[5] << 8) | data[4];
+            module_C_temp = (module_C_temp > 32767) ? module_C_temp - 65536 : module_C_temp;
+            float temp_C = module_C_temp / 10.0f;
+            
+            vehicle_state.leftinvtemp = fmaxf(fmaxf(temp_A, temp_B), temp_C);
+            // printf("Left Inverter Temp: %.1f°C\n", vehicle_state.leftinvtemp);
+        }
+        else if (msg_id == CAN_INVERTER2_BASE + 0) { // Inverter 2 temperatures 1
+            int16_t module_A_temp = (data[1] << 8) | data[0];
+            module_A_temp = (module_A_temp > 32767) ? module_A_temp - 65536 : module_A_temp;
+            float temp_A = module_A_temp / 10.0f;
+            
+            int16_t module_B_temp = (data[3] << 8) | data[2];
+            module_B_temp = (module_B_temp > 32767) ? module_B_temp - 65536 : module_B_temp;
+            float temp_B = module_B_temp / 10.0f;
+            
+            int16_t module_C_temp = (data[5] << 8) | data[4];
+            module_C_temp = (module_C_temp > 32767) ? module_C_temp - 65536 : module_C_temp;
+            float temp_C = module_C_temp / 10.0f;
+            
+            vehicle_state.rightinvtemp = fmaxf(fmaxf(temp_A, temp_B), temp_C);
+            // printf("Right Inverter Temp: %.1f°C\n", vehicle_state.rightinvtemp);
+        }
+    }
+    else {
+        // Standard ID messages
+        if (msg_id == CAN_BASE_ID + 1) { // Vehicle state
+            vehicle_state.bms = data[0];
+            vehicle_state.imd = data[1];
+            int drive_state = data[2];
+            int vehicle_state_val = data[3];
+            vehicle_state.bot = data[4];
+            vehicle_state.brb = data[5];
+            vehicle_state.cvc_overflow = data[6];
+            vehicle_state.cvc_time = data[7];
+
+            // Update drive state string
+            switch(drive_state) {
+                case 0:
+                    strcpy(vehicle_state.drive_state, "NEUTRAL");
+                    gpioWrite(NEUTRAL_LED_GPIO, 1);
+                    gpioWrite(DRIVE_LED_GPIO, 0);
+                    gpioWrite(REVERSE_LED_GPIO, 0);
+                    break;
+                case 1:
+                    strcpy(vehicle_state.drive_state, "DRIVE");
+                    gpioWrite(DRIVE_LED_GPIO, 1);
+                    gpioWrite(NEUTRAL_LED_GPIO, 0);
+                    gpioWrite(REVERSE_LED_GPIO, 0);
+                    break;
+                case 2:
+                    strcpy(vehicle_state.drive_state, "REVERSE");
+                    gpioWrite(REVERSE_LED_GPIO, 1);
+                    gpioWrite(DRIVE_LED_GPIO, 0);
+                    gpioWrite(NEUTRAL_LED_GPIO, 0);
+                    break;
+            }
+
+            // Update vehicle state string
+            switch(vehicle_state_val) {
+                case 0: strcpy(vehicle_state.vehicle_state, "Initial"); break;
+                case 1: strcpy(vehicle_state.vehicle_state, "Voltage Check"); break;
+                case 2: strcpy(vehicle_state.vehicle_state, "Wait for Precharge"); break;
+                case 3: strcpy(vehicle_state.vehicle_state, "Precharge Stage 1"); break;
+                case 4: strcpy(vehicle_state.vehicle_state, "Precharge Stage 2"); break;
+                case 5: strcpy(vehicle_state.vehicle_state, "Precharge Stage 3"); break;
+                case 6: strcpy(vehicle_state.vehicle_state, "Not Ready to Drive"); break;
+                case 7: strcpy(vehicle_state.vehicle_state, "Buzzer"); break;
+                case 8: strcpy(vehicle_state.vehicle_state, "Ready to Drive"); break;
+                case 9: strcpy(vehicle_state.vehicle_state, "Charging"); break;
+                default: strcpy(vehicle_state.vehicle_state, "Unknown"); break;
+            }
+            
+            // Update BMS and IMD LEDs
+            gpioWrite(BMS_LED_GPIO, vehicle_state.bms ? 0 : 1);
+            gpioWrite(IMD_LED_GPIO, vehicle_state.imd ? 0 : 1);
+            
+            // printf("Vehicle State: %s, Drive: %s, BMS: %d, IMD: %d\n", 
+                //    vehicle_state.vehicle_state, vehicle_state.drive_state, 
+                //    vehicle_state.bms, vehicle_state.imd);
+        }
+        else if (msg_id == CAN_BASE_ID + 2) { // Driving data
+            vehicle_state.throttle_position = ((data[0] << 8) | data[1]) / 10.0f;
+            vehicle_state.rpm = (data[2] << 8) | data[3];
+            
+            // Calculate speed (assuming WHEEL_DIAMETER and TRANSMISSION_RATIO are defined)
+            vehicle_state.speed = (vehicle_state.rpm * 60 * WHEEL_DIAMETER * 3.1415926535f) / 
+                                 (12 * 5280 * TRANSMISSION_RATIO);
+            vehicle_state.mileage = ((data[6] << 8) | data[7]) / 1000.0f;
+            
+            printf("Throttle: %.1f%%, RPM: %d, Speed: %.1f mph, Mileage: %.3f mi\n",
+                   vehicle_state.throttle_position, vehicle_state.rpm, 
+                   vehicle_state.speed, vehicle_state.mileage);
+        }
+        else if (msg_id == CAN_BMS_BASE + 1) { // BMS pack voltage
+            vehicle_state.accumulator_voltage = ((data[5] << 24) | (data[6] << 16) | 
+                                               (data[3] << 8) | data[4]) / 100.0f;
+            // printf("Accumulator Voltage: %.2f V\n", vehicle_state.accumulator_voltage);
+        }
+        else if (msg_id == CAN_BMS_BASE + 5) { // BMS current
+            uint16_t current_bytes = (data[0] << 8) | data[1];
+            int16_t current_value = (current_bytes > 32767) ? current_bytes - 65536 : current_bytes;
+            vehicle_state.accumulator_current = current_value / 10.0f;
+            // printf("Accumulator Current: %.1f A\n", vehicle_state.accumulator_current);
+        }
+        else if (msg_id == CAN_BMS_BASE + 16) { // BMS state of charge
+            uint16_t soc_bytes = (data[2] << 8) | data[3];
+            vehicle_state.battery_percentage = soc_bytes / 100.0f;
+            // printf("Battery SOC: %.1f%%\n", vehicle_state.battery_percentage);
+        }
+        else if (msg_id == CAN_BMS_BASE + 8) { // BMS cell temperatures
+            vehicle_state.acctemp = data[1] - 100; // Temperature in Celsius
+            // printf("Accumulator Temp: %.0f°C\n", vehicle_state.acctemp);
+        }
+    }
 }
 
-// Callback function for button interrupts
+shared_state_t* shared_state = NULL;
+static int can_socket = -1;
+
+// Signal handler
+void signal_handler(int sig) {
+    if (shared_state) {
+        shared_state->running = 0;
+    }
+}
+
+// Updated button callback function
 void button_callback(int gpio, int level, uint32_t tick) {
     button_state_t* btn = NULL;
     
     // Determine which button was pressed
     if (gpio == DRIVE_BUTTON_GPIO) {
+        printf("Drive button pressed\n\r");
         btn = &drive_button;
     } else if (gpio == NEUTRAL_BUTTON_GPIO) {
+        printf("Neutral button pressed\n\r");
         btn = &neutral_button;
     } else if (gpio == REVERSE_BUTTON_GPIO) {
+        printf("Reverse button pressed\n\r");
         btn = &reverse_button;
     }
     
     if (!btn) return;
     
-    // Simple debouncing - ignore changes too close together
+    // Simple debouncing
     if ((tick - btn->last_change_time) > BUTTON_DEBOUNCE_TIME) {
+        // printf("Button debounced\n\r");
         if (level != btn->debounced_state) {
             btn->debounced_state = level;
             btn->last_change_time = tick;
@@ -63,18 +227,294 @@ void button_callback(int gpio, int level, uint32_t tick) {
             // Only trigger on button press (falling edge, level = 0)
             if (level == 0) {
                 if (gpio == DRIVE_BUTTON_GPIO) {
-                    printf("Drive button pressed\n");
-                    // Add your CAN message sending logic here
+                    printf("Drive Message Sending\n\r");
+                    send_button_message(0); // Drive
                 } else if (gpio == NEUTRAL_BUTTON_GPIO) {
-                    printf("Neutral button pressed\n");
-                    // Add your CAN message sending logic here
+                    printf("Neutral Message Sending\n\r");
+                    send_button_message(1); // Neutral
                 } else if (gpio == REVERSE_BUTTON_GPIO) {
-                    printf("Reverse button pressed\n");
-                    // Add your CAN message sending logic here
+                    printf("reverse Message Sending\n\r");
+                    send_button_message(2); // Reverse
                 }
             }
         }
     }
+}
+
+// Create SocketCAN socket
+int create_can_socket() {
+    struct sockaddr_can addr;
+    struct ifreq ifr;
+    int sock;
+    
+    sock = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+    if (sock < 0) {
+        perror("socket");
+        return -1;
+    }
+    
+    strcpy(ifr.ifr_name, "can0");
+    ioctl(sock, SIOCGIFINDEX, &ifr);
+    
+    addr.can_family = AF_CAN;
+    addr.can_ifindex = ifr.ifr_ifindex;
+    
+    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("bind");
+        close(sock);
+        return -1;
+    }
+    
+    // Set socket to non-blocking mode
+    int flags = fcntl(sock, F_GETFL, 0);
+    fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+    
+    return sock;
+}
+
+// Queue management functions
+int rx_queue_put(struct can_frame* frame) {
+
+    pthread_mutex_lock(&shared_state->rx_mutex);
+    
+    int next_head = (shared_state->rx_head + 1) % MAX_CAN_MESSAGES;
+    if (next_head == shared_state->rx_tail) {
+        // Queue full
+        pthread_mutex_unlock(&shared_state->rx_mutex);
+        return -1;
+    }
+    
+    shared_state->rx_messages[shared_state->rx_head].frame = *frame;
+    shared_state->rx_messages[shared_state->rx_head].valid = 1;
+    shared_state->rx_head = next_head;
+    
+    pthread_mutex_unlock(&shared_state->rx_mutex);
+    return 0;
+}
+
+int rx_queue_get(struct can_frame* frame) {
+    pthread_mutex_lock(&shared_state->rx_mutex);
+    
+    if (shared_state->rx_head == shared_state->rx_tail) {
+        // Queue empty
+        // printf("Can Message queue is empty\r\n");
+        pthread_mutex_unlock(&shared_state->rx_mutex);
+        return -1;
+    }
+    
+    *frame = shared_state->rx_messages[shared_state->rx_tail].frame;
+    shared_state->rx_messages[shared_state->rx_tail].valid = 0;
+    shared_state->rx_tail = (shared_state->rx_tail + 1) % MAX_CAN_MESSAGES;
+    
+    pthread_mutex_unlock(&shared_state->rx_mutex);
+    return 0;
+}
+
+int tx_queue_put(struct can_frame* frame) {
+    pthread_mutex_lock(&shared_state->tx_mutex);
+    
+    int next_head = (shared_state->tx_head + 1) % MAX_CAN_MESSAGES;
+    if (next_head == shared_state->tx_tail) {
+        // Queue full
+        pthread_mutex_unlock(&shared_state->tx_mutex);
+        return -1;
+    }
+    
+    shared_state->tx_messages[shared_state->tx_head].frame = *frame;
+    shared_state->tx_messages[shared_state->tx_head].valid = 1;
+    shared_state->tx_head = next_head;
+    
+    pthread_mutex_unlock(&shared_state->tx_mutex);
+    return 0;
+}
+
+int tx_queue_get(struct can_frame* frame) {
+    pthread_mutex_lock(&shared_state->tx_mutex);
+    
+    if (shared_state->tx_head == shared_state->tx_tail) {
+        // Queue empty
+        pthread_mutex_unlock(&shared_state->tx_mutex);
+        return -1;
+    }
+    
+    *frame = shared_state->tx_messages[shared_state->tx_tail].frame;
+    shared_state->tx_messages[shared_state->tx_tail].valid = 0;
+    shared_state->tx_tail = (shared_state->tx_tail + 1) % MAX_CAN_MESSAGES;
+    
+    pthread_mutex_unlock(&shared_state->tx_mutex);
+    return 0;
+}
+
+// CAN process function (equivalent to your Python run function)
+void* can_process(void* arg) {
+    struct can_frame frame;
+    fd_set readfds;
+    struct timeval timeout;
+    int ret;
+    
+    printf("CAN process started\n");
+    
+    while (shared_state->running) {
+        // Initialize/reinitialize CAN socket
+        if (can_socket < 0) {
+            can_socket = create_can_socket();
+            if (can_socket < 0) {
+                printf("CAN initialization failed, retrying...\n");
+                shared_state->can_connected = 0;
+                gpioDelay(500000);  // 500ms delay
+                continue;
+            }
+            shared_state->can_connected = 1;
+            printf("CAN socket connected\n");
+        }
+        
+        // Check for received data with timeout
+        FD_ZERO(&readfds);
+        FD_SET(can_socket, &readfds);
+        timeout.tv_sec = 0;
+        timeout.tv_usec = CAN_RECV_TIMEOUT_US;
+        
+        ret = select(can_socket + 1, &readfds, NULL, NULL, &timeout);
+        
+        if (ret > 0 && FD_ISSET(can_socket, &readfds)) {
+            // Data available to read
+            ssize_t nbytes = read(can_socket, &frame, sizeof(struct can_frame));
+            if (nbytes == sizeof(struct can_frame)) {
+                if (rx_queue_put(&frame) != 0) {
+                    printf("RX queue full, dropping message\n");
+                }
+            } else if (nbytes < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                perror("CAN read error");
+                close(can_socket);
+                can_socket = -1;
+                shared_state->can_connected = 0;
+                continue;
+            }
+        } else if (ret < 0) {
+            perror("select error");
+            close(can_socket);
+            can_socket = -1;
+            shared_state->can_connected = 0;
+            continue;
+        }
+        
+        // Check for data to send
+        while (tx_queue_get(&frame) == 0) {
+            ssize_t nbytes = write(can_socket, &frame, sizeof(struct can_frame));
+            if (nbytes != sizeof(struct can_frame)) {
+                if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                    perror("CAN write error");
+                    close(can_socket);
+                    can_socket = -1;
+                    shared_state->can_connected = 0;
+                    break;
+                }
+                // Put message back in queue if temporary error
+                tx_queue_put(&frame);
+                break;
+            }
+        }
+        
+        // Small delay to prevent CPU spinning
+        gpioDelay(100);  // 100µs
+    }
+    
+    if (can_socket >= 0) {
+        close(can_socket);
+    }
+    
+    printf("CAN process stopped\n");
+    return NULL;
+}
+
+// Helper function to send CAN message
+int send_can_message(uint32_t id, uint8_t* data, uint8_t len) {
+    struct can_frame frame;
+    
+    if (len > 8) {
+        return -1;  // Invalid length
+    }
+    
+    frame.can_id = id;
+    frame.can_dlc = len;
+    memcpy(frame.data, data, len);
+    
+    return tx_queue_put(&frame);
+}
+
+// Helper function to receive CAN message
+int receive_can_message(uint32_t* id, uint8_t* data, uint8_t* len) {
+    struct can_frame frame;
+    // printf("Entered receive_can_message\r\n");
+    if (rx_queue_get(&frame) == 0) {
+        // printf("Entered rx_queue_get\r\n");
+        *id = frame.can_id;
+        *len = frame.can_dlc;
+        memcpy(data, frame.data, frame.can_dlc);
+        return 0;
+    }
+    
+    return -1;  // No message available
+}
+
+// Initialize shared state and mutexes
+int init_shared_state() {
+    shared_state = malloc(sizeof(shared_state_t));
+    if (!shared_state) {
+        return -1;
+    }
+    
+    memset(shared_state, 0, sizeof(shared_state_t));
+    shared_state->running = 1;
+    
+    pthread_mutex_init(&shared_state->rx_mutex, NULL);
+    pthread_mutex_init(&shared_state->tx_mutex, NULL);
+    
+    return 0;
+}
+
+// Cleanup function
+void cleanup() {
+    if (shared_state) {
+        shared_state->running = 0;
+        pthread_mutex_destroy(&shared_state->rx_mutex);
+        pthread_mutex_destroy(&shared_state->tx_mutex);
+        free(shared_state);
+        shared_state = NULL;
+    }
+    
+    if (can_socket >= 0) {
+        close(can_socket);
+        can_socket = -1;
+    }
+}
+
+// Function to send button press messages
+int send_button_message(int button_type) {
+    uint8_t button_data[8] = {0};
+    uint32_t button_msg_id = CAN_BASE_ID + 0; // Assuming button messages use this ID
+    
+    switch(button_type) {
+        case 0: // Neutral button
+            button_data[0] = 0; // Neutral command
+            printf("Sending NEUTRAL button command\n");
+            break;
+        case 1: // Drive button
+            button_data[0] = 1; // Drive command
+            printf("Sending DRIVE button command\n");
+            break;
+        case 2: // Reverse button
+            button_data[0] = 2; // Reverse command
+            printf("Sending REVERSE button command\n");
+            break;
+        default:
+            return -1;
+    }
+    
+    // Add timestamp or sequence number if needed
+    button_data[1] = (uint8_t)(gpioTick() & 0xFF);
+    
+    return send_can_message(button_msg_id, button_data, 8);
 }
 
 // Initialize GPIO pins
@@ -93,27 +533,26 @@ int init_gpio() {
     gpioSetMode(NEUTRAL_LED_GPIO, PI_OUTPUT);
     gpioSetMode(REVERSE_LED_GPIO, PI_OUTPUT);
 
-    // Set up input pins with pull-up resistors 
-    // Not needed in the new dashboard
+   // Set up input pins with pull-up resistors 
 
-    // gpioSetMode(DRIVE_BUTTON_GPIO, PI_INPUT);
-    // gpioSetPullUpDown(DRIVE_BUTTON_GPIO, PI_PUD_UP);
+    gpioSetMode(DRIVE_BUTTON_GPIO, PI_INPUT);
+    gpioSetPullUpDown(DRIVE_BUTTON_GPIO, PI_PUD_UP);
     
-    // gpioSetMode(NEUTRAL_BUTTON_GPIO, PI_INPUT);
-    // gpioSetPullUpDown(NEUTRAL_BUTTON_GPIO, PI_PUD_UP);
+    gpioSetMode(NEUTRAL_BUTTON_GPIO, PI_INPUT);
+    gpioSetPullUpDown(NEUTRAL_BUTTON_GPIO, PI_PUD_UP);
     
-    // gpioSetMode(REVERSE_BUTTON_GPIO, PI_INPUT);
-    // gpioSetPullUpDown(REVERSE_BUTTON_GPIO, PI_PUD_UP);
+    gpioSetMode(REVERSE_BUTTON_GPIO, PI_INPUT);
+    gpioSetPullUpDown(REVERSE_BUTTON_GPIO, PI_PUD_UP);
 
     // Set up interrupt callbacks for buttons (trigger on both edges)
     // don't need it in the new dashboard
-    // drive_button.pin = DRIVE_BUTTON_GPIO;
-    // neutral_button.pin = NEUTRAL_BUTTON_GPIO;
-    // reverse_button.pin = REVERSE_BUTTON_GPIO;
+    drive_button.pin = DRIVE_BUTTON_GPIO;
+    neutral_button.pin = NEUTRAL_BUTTON_GPIO;
+    reverse_button.pin = REVERSE_BUTTON_GPIO;
     
-    // gpioSetISRFunc(DRIVE_BUTTON_GPIO, EITHER_EDGE, 0, button_callback);
-    // gpioSetISRFunc(NEUTRAL_BUTTON_GPIO, EITHER_EDGE, 0, button_callback);
-    // gpioSetISRFunc(REVERSE_BUTTON_GPIO, EITHER_EDGE, 0, button_callback);
+    gpioSetISRFunc(DRIVE_BUTTON_GPIO, FALLING_EDGE, 0, button_callback);
+    gpioSetISRFunc(NEUTRAL_BUTTON_GPIO, FALLING_EDGE, 0, button_callback);
+    gpioSetISRFunc(REVERSE_BUTTON_GPIO, FALLING_EDGE, 0, button_callback);
 
     // Set initial LED states (1 = ON), we can change it to 0
     gpioWrite(DRIVE_LED_GPIO, 1);
@@ -126,134 +565,83 @@ int init_gpio() {
     return 0;
 }
 
-// Initialize the canbus
-void canbus_init() {
 
-}
-// Thread function for periodic CAN message sending
-void* periodic_can_thread(void* arg) {
-    uint32_t last_send_time = gpioTick();
-    
-    while (running) {
-        uint32_t current_time = gpioTick();
-        
-        // Send periodic CAN messages (handle tick wraparound)
-        if ((current_time - last_send_time) >= BUTTON_SEND_INTERVAL) {
-            // Add your periodic CAN message sending logic here
-            // canbus_send_status();
-            last_send_time = current_time;
-        }
-        
-        // Small delay to prevent CPU spinning
-        gpioDelay(1000); // 1ms delay
-    }
-    
-    return NULL;
-}
-
-// Function to update LED based on system status
-void update_status_leds(int bms_status, int imd_status) {
-    if (IN_CAR) {
-        gpioWrite(BMS_LED_GPIO, bms_status ? 1 : 0);
-        gpioWrite(IMD_LED_GPIO, imd_status ? 1 : 0);
-    }
-}
-
-// Function to update gear LEDs
-void update_gear_leds(int drive_active, int neutral_active, int reverse_active) {
-    if (IN_CAR) {
-        gpioWrite(DRIVE_LED_GPIO, drive_active ? 1 : 0);
-        gpioWrite(NEUTRAL_LED_GPIO, neutral_active ? 1 : 0);
-        gpioWrite(REVERSE_LED_GPIO, reverse_active ? 1 : 0);
-    }
-}
-
-// Function to control CAN transceiver
-void set_can_transceiver(int reset_state, int standby_state) {
-    if (IN_CAR) {
-        gpioWrite(CAN_NRST_GPIO, reset_state ? 1 : 0);
-        gpioWrite(CAN_STBY_GPIO, standby_state ? 1 : 0);
-    }
-}
-
+// Example usage in main function
 int main() {
-    printf("Racing Dashboard Starting...\n");
+    pthread_t can_thread;
+    pthread_t ws_thread;
+    struct can_frame rx_frame;
+    uint32_t msg_id;
+    uint8_t msg_data[8];
+    uint8_t msg_len;
+    uint64_t last_button = 0;
     
-    // Set up signal handlers for clean shutdown
+    printf("Racing CAN System Starting...\n");
+    
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
     
-    if (IN_CAR) {
-        if (init_gpio() != 0) {
-            fprintf(stderr, "Failed to initialize GPIO\n");
-            return -1;
-        }
-        
-        // Enable CAN transceiver (example - adjust based on your hardware)
-        set_can_transceiver(1, 0); // Reset = HIGH, Standby = LOW (active)
+    // Initialize pigpio
+    if (init_gpio() < 0) {
+        fprintf(stderr, "Failed to initialize pigpio\n");
+        return -1;
     }
     
-    // Initialize your CAN bus and web modules here
-    // canbus_init();
-    // web_init();
-    
-    pthread_t periodic_thread;
-    
-    if (IN_CAR) {
-        // Create periodic CAN message thread
-        if (pthread_create(&periodic_thread, NULL, periodic_can_thread, NULL) != 0) {
-            fprintf(stderr, "Failed to create periodic CAN thread\n");
-            gpioTerminate();
-            return -1;
-        }
+    // Initialize shared state
+    if (init_shared_state() != 0) {
+        fprintf(stderr, "Failed to initialize shared state\n");
+        gpioTerminate();
+        return -1;
     }
     
-    // Main loop - handle CAN messages and other tasks
-    printf("Main loop started. Press Ctrl+C to exit.\n");
+    // Start CAN process thread
+    if (pthread_create(&can_thread, NULL, can_process, NULL) != 0) {
+        fprintf(stderr, "Failed to create CAN thread\n");
+        cleanup();
+        gpioTerminate();
+        return -1;
+    }
+
+    // Start websocket thread
+    if (pthread_create(&ws_thread, NULL, websocket_server, NULL) != 0) {
+    fprintf(stderr, "Failed to create WebSocket thread\n");
+    cleanup();
+    gpioTerminate();
+    return -1;
+}
     
-    while (running) {
-        // Your main CAN message processing loop here
-        // This is where you'd handle incoming CAN messages and update dashboard
-        
-        // Example: Update LEDs based on vehicle state
-        if (IN_CAR) {
-            // Example status updates (replace with actual logic)
-            static int counter = 0;
-            counter++;
+    printf("CAN system initialized. Main loop starting...\n");
+    
+    // Main loop - your dashboard logic here
+    while (shared_state->running) {
+        // Check for received CAN messages and process them
+        if (receive_can_message(&msg_id, msg_data, &msg_len) == 0) {
+           // printf("Received CAN message: ID=0x%03X, len=%d, data=", msg_id, msg_len);
+            // for (int i = 0; i < msg_len; i++) {
+            //     printf("%02X ", msg_data[i]);
+            // }
+           // printf("\n");
+            int is_extended = (msg_id & CAN_EFF_FLAG) ? 1 : 0;
+            msg_id &= ~(CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_ERR_FLAG);
             
-            // Example: Toggle status LEDs every few seconds for demo
-            if (counter % 1000 == 0) {
-                // update_status_leds(bms_status, imd_status);
-                // update_gear_leds(drive_active, neutral_active, reverse_active);
-            }
+            // Process the message using our new function
+            process_can_message(msg_id, msg_data, msg_len, is_extended);
         }
         
-        // High-frequency CAN processing
-        // canbus_process_messages();
-        
-        gpioDelay(1000); // 1ms delay - adjust based on your CAN message frequency
+        gpioDelay(100);  // 100µs loop time
     }
     
     printf("Shutting down...\n");
     
-    if (IN_CAR) {
-        // Wait for periodic thread to finish
-        pthread_join(periodic_thread, NULL);
-        
-        // Turn off all LEDs before shutdown
-        gpioWrite(DRIVE_LED_GPIO, 0);
-        gpioWrite(NEUTRAL_LED_GPIO, 0);
-        gpioWrite(REVERSE_LED_GPIO, 0);
-        gpioWrite(BMS_LED_GPIO, 0);
-        gpioWrite(IMD_LED_GPIO, 0);
-        
-        // Put CAN transceiver in standby
-        set_can_transceiver(0, 1); // Reset = LOW, Standby = HIGH (standby)
-        
-        // Clean up pigpio library
-        gpioTerminate();
-    }
+    // Wait for CAN thread to finish
+    pthread_join(can_thread, NULL);
+    // Wait for Websocket thread to finish
+    pthread_join(ws_thread, NULL);
+
     
-    printf("Dashboard shutdown complete.\n");
+    cleanup();
+    gpioTerminate();
+    
+    printf("Shutdown complete\n");
     return 0;
 }

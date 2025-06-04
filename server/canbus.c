@@ -26,59 +26,27 @@
 #define CAN_TXQUEUE_LEN 65536
 #define MAX_CAN_MESSAGES 1000
 #define BUTTON_DEBOUNCE_TIME 50000  // microseconds (50ms)
-#define BUTTON_SEND_INTERVAL 50000  // microseconds (50ms)
+#define BUTTON_POLL_INTERVAL 50000  // microseconds (50ms)
 
 static volatile int running = 1;
 
-// Button state tracking for debouncing
+// Button state tracking for debouncing and polling
 typedef struct {
     int last_state;
     uint32_t last_change_time;
     int debounced_state;
     int pin;
+    int previous_debounced_state;  // Added for edge detection
 } button_state_t;
 
-static button_state_t drive_button = {1, 0, 1, 0};      // Will be set to actual pin
-static button_state_t neutral_button = {1, 0, 1, 0};
-static button_state_t reverse_button = {1, 0, 1, 0};
-
-// Add these structures and variables after your existing includes and before main()
-
-// Vehicle state structure to match Python state dictionary
-// typedef struct {
-//     // BMS and safety states
-//     int bms;
-//     int imd;
-//     int bot;
-//     int brb;
-//     int cvc_overflow;
-//     int cvc_time;
-    
-//     // Drive states
-//     char drive_state[20];
-//     char vehicle_state[30];
-    
-//     // Temperature data
-//     float leftinvtemp;
-//     float rightinvtemp;
-//     float acctemp;
-    
-//     // Driving data
-//     float throttle_position;
-//     int rpm;
-//     float speed;
-//     float mileage;
-    
-//     // Battery data
-//     float accumulator_voltage;
-//     float accumulator_current;
-//     float battery_percentage;
-// } vehicle_state_t;
+static button_state_t drive_button = {1, 0, 1, 0, 1};      // Initialize with button released state
+static button_state_t neutral_button = {1, 0, 1, 0, 1};
+static button_state_t reverse_button = {1, 0, 1, 0, 1};
 
 vehicle_state_t vehicle_state = {0};
 void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_extended);
 void signal_handler(int sig);
-void button_callback(int gpio, int level, uint32_t tick);
+void poll_buttons();  // New function for polling buttons
 int create_can_socket(); 
 int rx_queue_put(struct can_frame* frame);
 int rx_queue_get(struct can_frame* frame);
@@ -91,9 +59,6 @@ int init_shared_state();
 void cleanup() ;
 int send_button_message(int button_type);
 int init_gpio();
-
-
-
 
 // Function to process received CAN messages (based on your Python logic)
 void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_extended) {
@@ -225,23 +190,6 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
     }
 }
 
-// Shared memory structures for IPC
-// typedef struct {
-//     struct can_frame frame;
-//     int valid;
-// } can_message_t;
-
-// typedef struct {
-//     can_message_t rx_messages[MAX_CAN_MESSAGES];
-//     can_message_t tx_messages[MAX_CAN_MESSAGES];
-//     int rx_head, rx_tail;
-//     int tx_head, tx_tail;
-//     int can_connected;
-//     volatile int running;
-//     pthread_mutex_t rx_mutex;
-//     pthread_mutex_t tx_mutex;
-// } shared_state_t;
-
 shared_state_t* shared_state = NULL;
 static int can_socket = -1;
 
@@ -252,100 +200,53 @@ void signal_handler(int sig) {
     }
 }
 
-// Updated button callback function
-void button_callback(int gpio, int level, uint32_t tick) {
-    button_state_t* btn = NULL;
+// New button polling function
+void poll_buttons() {
+    uint32_t current_tick = gpioTick();
+    button_state_t* buttons[] = {&drive_button, &neutral_button, &reverse_button};
+    int button_gpios[] = {DRIVE_BUTTON_GPIO, NEUTRAL_BUTTON_GPIO, REVERSE_BUTTON_GPIO};
+    const char* button_names[] = {"Drive", "Neutral", "Reverse"};
     
-    // Determine which button was pressed
-    if (gpio == DRIVE_BUTTON_GPIO) {
-        printf("Drive button pressed\n\r");
-        btn = &drive_button;
-    } else if (gpio == NEUTRAL_BUTTON_GPIO) {
-        printf("Neutral button pressed\n\r");
-        btn = &neutral_button;
-    } else if (gpio == REVERSE_BUTTON_GPIO) {
-        printf("Reverse button pressed\n\r");
-        btn = &reverse_button;
-    }
-    
-    if (!btn) return;
-    
-    // Simple debouncing
-    if ((tick - btn->last_change_time) > BUTTON_DEBOUNCE_TIME) {
-        // printf("Button debounced\n\r");
-        if (level != btn->debounced_state) {
-            btn->debounced_state = level;
-            btn->last_change_time = tick;
+    for (int i = 0; i < 3; i++) {
+        button_state_t* btn = buttons[i];
+        int gpio = button_gpios[i];
+        int current_state = gpioRead(gpio);
+        
+        // Check if state has changed
+        if (current_state != btn->last_state) {
+            btn->last_state = current_state;
+            btn->last_change_time = current_tick;
+        }
+        
+        // Check if enough time has passed for debouncing
+        if ((current_tick - btn->last_change_time) > BUTTON_DEBOUNCE_TIME) {
+            // Store previous debounced state for edge detection
+            btn->previous_debounced_state = btn->debounced_state;
+            btn->debounced_state = current_state;
             
-            // Only trigger on button press (falling edge, level = 0)
-            if (level == 0) {
-                if (gpio == DRIVE_BUTTON_GPIO) {
-                    printf("Drive Message Sending\n\r");
-                    send_button_message(0); // Drive
-                } else if (gpio == NEUTRAL_BUTTON_GPIO) {
-                    printf("Neutral Message Sending\n\r");
-                    send_button_message(1); // Neutral
-                } else if (gpio == REVERSE_BUTTON_GPIO) {
-                    printf("reverse Message Sending\n\r");
-                    send_button_message(2); // Reverse
+            // Detect falling edge (button press) - transition from 1 to 0
+            if (btn->previous_debounced_state == 1 && btn->debounced_state == 0) {
+                printf("%s button pressed\n", button_names[i]);
+                
+                // Send appropriate message based on button
+                switch (i) {
+                    case 0: // Drive button
+                        printf("Drive Message Sending\n");
+                        send_button_message(1); // Drive
+                        break;
+                    case 1: // Neutral button
+                        printf("Neutral Message Sending\n");
+                        send_button_message(0); // Neutral
+                        break;
+                    case 2: // Reverse button
+                        printf("Reverse Message Sending\n");
+                        send_button_message(2); // Reverse
+                        break;
                 }
             }
         }
     }
 }
-// Initialize CAN interface
-// int init_can_interface() {
-//     char cmd[256];
-//     int ret;
-    
-//     printf("Initializing CAN interface...\n");
-    
-//     // Put CAN transceiver in reset and standby mode
-//     if (IN_CAR) {
-//         gpioWrite(CAN_NRST_GPIO, 0);  // Reset = LOW
-//         gpioWrite(CAN_STBY_GPIO, 1);  // Standby = HIGH
-//         gpioDelay(100000);  // 100ms delay
-//         printf("CAN transceiver in reset/standby\n");
-        
-//         // Pull chip out of reset
-//         gpioWrite(CAN_NRST_GPIO, 1);  // Reset = HIGH
-//         gpioDelay(100000);  // 100ms delay
-//         printf("CAN transceiver out of reset\n");
-//     }
-    
-//     // Bring down interface first
-//     system("sudo ip link set can0 down 2>/dev/null");
-//     gpioDelay(100000);
-    
-//     // Configure and bring up CAN interface
-//     snprintf(cmd, sizeof(cmd), 
-//         "sudo ip link set can0 up type can bitrate %d restart-ms %d", 
-//         CAN_BITRATE, CAN_RESTART_MS);
-//     ret = system(cmd);
-//     if (ret != 0) {
-//         fprintf(stderr, "Failed to bring up CAN interface\n");
-//         return -1;
-//     }
-    
-//     gpioDelay(100000);  // 100ms delay
-    
-//     // Set TX queue length
-//     snprintf(cmd, sizeof(cmd), "sudo ifconfig can0 txqueuelen %d", CAN_TXQUEUE_LEN);
-//     ret = system(cmd);
-//     if (ret != 0) {
-//         fprintf(stderr, "Warning: Failed to set TX queue length\n");
-//     }
-    
-//     if (IN_CAR) {
-//         // Pull chip out of standby mode
-//         gpioWrite(CAN_STBY_GPIO, 0);  // Standby = LOW (active)
-//         gpioDelay(100000);  // 100ms delay
-//         printf("CAN transceiver active\n");
-//     }
-    
-//     printf("CAN interface initialized\n");
-//     return 0;
-// }
 
 // Create SocketCAN socket
 int create_can_socket() {
@@ -451,7 +352,7 @@ int tx_queue_get(struct can_frame* frame) {
     return 0;
 }
 
-// CAN process function (equivalent to your Python run function)
+// CAN process function
 void* can_process(void* arg) {
     struct can_frame frame;
     fd_set readfds;
@@ -623,7 +524,7 @@ int send_button_message(int button_type) {
     return send_can_message(button_msg_id, button_data, 8);
 }
 
-// Initialize GPIO pins
+// Initialize GPIO pins (simplified - no interrupts)
 int init_gpio() {
     if (gpioInitialise() < 0) {
         fprintf(stderr, "Failed to initialize pigpio library\n");
@@ -639,8 +540,7 @@ int init_gpio() {
     gpioSetMode(NEUTRAL_LED_GPIO, PI_OUTPUT);
     gpioSetMode(REVERSE_LED_GPIO, PI_OUTPUT);
 
-   // Set up input pins with pull-up resistors 
-
+    // Set up input pins with pull-up resistors 
     gpioSetMode(DRIVE_BUTTON_GPIO, PI_INPUT);
     gpioSetPullUpDown(DRIVE_BUTTON_GPIO, PI_PUD_UP);
     
@@ -650,15 +550,10 @@ int init_gpio() {
     gpioSetMode(REVERSE_BUTTON_GPIO, PI_INPUT);
     gpioSetPullUpDown(REVERSE_BUTTON_GPIO, PI_PUD_UP);
 
-    // Set up interrupt callbacks for buttons (trigger on both edges)
-    // don't need it in the new dashboard
+    // Initialize button pin assignments
     drive_button.pin = DRIVE_BUTTON_GPIO;
     neutral_button.pin = NEUTRAL_BUTTON_GPIO;
     reverse_button.pin = REVERSE_BUTTON_GPIO;
-    
-    gpioSetISRFunc(DRIVE_BUTTON_GPIO, FALLING_EDGE, 0, button_callback);
-    gpioSetISRFunc(NEUTRAL_BUTTON_GPIO, FALLING_EDGE, 0, button_callback);
-    gpioSetISRFunc(REVERSE_BUTTON_GPIO, FALLING_EDGE, 0, button_callback);
 
     // Set initial LED states (1 = ON), we can change it to 0
     gpioWrite(DRIVE_LED_GPIO, 1);
@@ -667,10 +562,9 @@ int init_gpio() {
     gpioWrite(BMS_LED_GPIO, 1);
     gpioWrite(IMD_LED_GPIO, 1);
 
-    printf("GPIO initialized successfully\n");
+    printf("GPIO initialized successfully (polling mode)\n");
     return 0;
 }
-
 
 // Example usage in main function
 int main() {
@@ -680,7 +574,7 @@ int main() {
     uint32_t msg_id;
     uint8_t msg_data[8];
     uint8_t msg_len;
-    uint64_t last_button = 0;
+    uint64_t last_button_poll = 0;
     
     printf("Racing CAN System Starting...\n");
     
@@ -710,64 +604,37 @@ int main() {
 
     // Start websocket thread
     if (pthread_create(&ws_thread, NULL, websocket_server, NULL) != 0) {
-    fprintf(stderr, "Failed to create WebSocket thread\n");
-    cleanup();
-    gpioTerminate();
-    return -1;
-}
+        fprintf(stderr, "Failed to create WebSocket thread\n");
+        cleanup();
+        gpioTerminate();
+        return -1;
+    }
     
     printf("CAN system initialized. Main loop starting...\n");
     
     // Main loop - your dashboard logic here
     while (shared_state->running) {
+        uint64_t current_time = gpioTick();
+        
+        // Poll buttons every 50ms
+        if ((current_time - last_button_poll) >= BUTTON_POLL_INTERVAL) {
+            poll_buttons();
+            last_button_poll = current_time;
+        }
+        
         // Check for received CAN messages and process them
         if (receive_can_message(&msg_id, msg_data, &msg_len) == 0) {
-           // printf("Received CAN message: ID=0x%03X, len=%d, data=", msg_id, msg_len);
+            // printf("Received CAN message: ID=0x%03X, len=%d, data=", msg_id, msg_len);
             // for (int i = 0; i < msg_len; i++) {
             //     printf("%02X ", msg_data[i]);
             // }
-           // printf("\n");
+            // printf("\n");
             int is_extended = (msg_id & CAN_EFF_FLAG) ? 1 : 0;
             msg_id &= ~(CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_ERR_FLAG);
             
             // Process the message using our new function
             process_can_message(msg_id, msg_data, msg_len, is_extended);
         }
-
-        struct timeval tv;
-        gettimeofday(&tv, 0);
-        if (tv.tv_usec - last_button >= 50000) {
-            if (!gpioRead(NEUTRAL_BUTTON_GPIO)) {
-                printf("N\n");
-                send_button_message(0);
-            }
-            else if (!gpioRead(DRIVE_BUTTON_GPIO)) {
-                printf("D\n");
-                send_button_message(1);
-            }
-            else if (!gpioRead(REVERSE_BUTTON_GPIO)) {
-                printf("R\n");
-                send_button_message(2);
-            }
-            last_button = tv.tv_usec;
-        }
-        
-        // // Example: Send periodic CAN message
-        // static int counter = 0;
-        // if (++counter >= 1000) {  // Every ~100ms at 100µs loop
-        //     uint8_t status_data[8] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-        //     if (send_can_message(0x100, status_data, 8) != 0) {
-        //         printf("Failed to queue CAN message\n");
-        //     }
-        //     counter = 0;
-        // }
-        
-        // // Print connection status periodically
-        // static int status_counter = 0;
-        // if (++status_counter >= 10000) {  // Every ~1s
-        //     printf("CAN connected: %s\n", shared_state->can_connected ? "YES" : "NO");
-        //     status_counter = 0;
-        // }
         
         gpioDelay(100);  // 100µs loop time
     }
@@ -778,7 +645,6 @@ int main() {
     pthread_join(can_thread, NULL);
     // Wait for Websocket thread to finish
     pthread_join(ws_thread, NULL);
-
     
     cleanup();
     gpioTerminate();
