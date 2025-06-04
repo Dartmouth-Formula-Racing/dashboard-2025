@@ -19,7 +19,7 @@
 #include <math.h>
 #include "websocket_server.h"
 
-
+#define _GNU_SOURCE  // For pthread_timedjoin_np
 #define CAN_RECV_TIMEOUT_US 1000    // 1ms timeout in microseconds
 #define CAN_BITRATE 500000
 #define CAN_RESTART_MS 20
@@ -29,6 +29,9 @@
 #define BUTTON_POLL_INTERVAL 50000  // microseconds (50ms)
 
 static volatile int running = 1;
+
+// Use a simple volatile global variable instead of accessing shared_state in signal handler
+static volatile sig_atomic_t shutdown_requested = 0;
 
 // Button state tracking for debouncing and polling
 typedef struct {
@@ -45,7 +48,6 @@ static button_state_t reverse_button = {1, 0, 1, 0, 1};
 
 vehicle_state_t vehicle_state = {0};
 void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_extended);
-void signal_handler(int sig);
 void poll_buttons();  // New function for polling buttons
 int create_can_socket(); 
 int rx_queue_put(struct can_frame* frame);
@@ -59,6 +61,14 @@ int init_shared_state();
 void cleanup() ;
 int send_button_message(int button_type);
 int init_gpio();
+void signal_handler(int sig);
+
+
+// Simplified signal handler - only sets a flag
+void signal_handler(int sig) {
+    shutdown_requested = 1;
+    // Not printing anything or access complex data structures in signal handler
+}
 
 // Function to process received CAN messages (based on your Python logic)
 void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_extended) {
@@ -193,12 +203,12 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
 shared_state_t* shared_state = NULL;
 static int can_socket = -1;
 
-// Signal handler
-void signal_handler(int sig) {
-    if (shared_state) {
-        shared_state->running = 0;
-    }
-}
+// // Signal handler
+// void signal_handler(int sig) {
+//     if (shared_state) {
+//         shared_state->running = 0;
+//     }
+// }
 
 // New button polling function
 void poll_buttons() {
@@ -570,7 +580,7 @@ int init_gpio() {
 int main() {
     pthread_t can_thread;
     pthread_t ws_thread;
-    struct can_frame rx_frame;
+   // struct can_frame rx_frame;
     uint32_t msg_id;
     uint8_t msg_data[8];
     uint8_t msg_len;
@@ -578,8 +588,20 @@ int main() {
     
     printf("Racing CAN System Starting...\n");
     
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
+    // Set up signal handlers
+    struct sigaction sa;
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("sigaction SIGINT");
+        return -1;
+    }
+    if (sigaction(SIGTERM, &sa, NULL) == -1) {
+        perror("sigaction SIGTERM");
+        return -1;
+    }
     
     // Initialize pigpio
     if (init_gpio() < 0) {
@@ -612,8 +634,8 @@ int main() {
     
     printf("CAN system initialized. Main loop starting...\n");
     
-    // Main loop - your dashboard logic here
-    while (shared_state->running) {
+    // Main loop - check shutdown_requested flag
+    while (!shutdown_requested && shared_state->running) {
         uint64_t current_time = gpioTick();
         
         // Poll buttons every 50ms
@@ -624,11 +646,6 @@ int main() {
         
         // Check for received CAN messages and process them
         if (receive_can_message(&msg_id, msg_data, &msg_len) == 0) {
-            // printf("Received CAN message: ID=0x%03X, len=%d, data=", msg_id, msg_len);
-            // for (int i = 0; i < msg_len; i++) {
-            //     printf("%02X ", msg_data[i]);
-            // }
-            // printf("\n");
             int is_extended = (msg_id & CAN_EFF_FLAG) ? 1 : 0;
             msg_id &= ~(CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_ERR_FLAG);
             
@@ -639,13 +656,36 @@ int main() {
         gpioDelay(100);  // 100µs loop time
     }
     
-    printf("Shutting down...\n");
+    printf("Shutdown signal received, stopping...\n");
     
+    // Signal threads to stop
+    if (shared_state) {
+        shared_state->running = 0;
+    }
+    
+    // Wait for threads to finish with timeout
+    // struct timespec timeout;
+    // timeout.tv_sec = 2;  // 2 second timeout
+    // timeout.tv_nsec = 0;
+    
+    // printf("Waiting for CAN thread to finish...\n");
+    // if (pthread_timedjoin_np(can_thread, NULL, &timeout) != 0) {
+    //     printf("CAN thread didn't finish in time, canceling...\n");
+    //     pthread_cancel(can_thread);
+    //     pthread_join(can_thread, NULL);
+    // }
+    
+    // printf("Waiting for WebSocket thread to finish...\n");
+    // if (pthread_timedjoin_np(ws_thread, NULL, &timeout) != 0) {
+    //     printf("WebSocket thread didn't finish in time, canceling...\n");
+    //     pthread_cancel(ws_thread);
+    //     pthread_join(ws_thread, NULL);
+    // }
     // Wait for CAN thread to finish
     pthread_join(can_thread, NULL);
     // Wait for Websocket thread to finish
     pthread_join(ws_thread, NULL);
-    
+
     cleanup();
     gpioTerminate();
     
