@@ -157,8 +157,8 @@ ws.onmessage = function(event) {
     rightinvtemp_elm.innerHTML = data.rightinvtemp.toFixed(1) + ' °C';
 
     // Update throttle display
-    throttlebar_elm.style.height = data.throttle_position + '%';
-    throttleval_elm.innerHTML = data.throttle_position.toFixed(1) + '%';
+    throttlebar_elm.style.height = data.throttle + '%';
+    throttleval_elm.innerHTML = data.throttle.toFixed(1) + '%';
 
     // Update RPM and speed
     rpm_elm.innerHTML = data.rpm.toFixed(0) + ' RPM';
@@ -169,12 +169,12 @@ ws.onmessage = function(event) {
     laptime_elm.innerHTML = 'Lap time: ' + data.lap_time;
 
     // Update battery display
-    batterybar_elm.style.height = data.battery_percentage + '%';
-    batteryval_elm.innerHTML = data.battery_percentage.toFixed(1) + '%';
+    batterybar_elm.style.height = data.battery + '%';
+    batteryval_elm.innerHTML = data.battery.toFixed(1) + '%';
 
     // Update high voltage readings
-    hvvoltage_elm.innerHTML = data.accumulator_voltage.toFixed(1) + ' V';
-    acccurrent_elm.innerHTML = data.accumulator_current.toFixed(1) + ' A';
+    hvvoltage_elm.innerHTML = data.voltage.toFixed(1) + ' V';
+    acccurrent_elm.innerHTML = data.current.toFixed(1) + ' A';
     range_elm.innerHTML = data.estimated_range.toFixed(1) + ' mi';
 
     // Handle traction control status
