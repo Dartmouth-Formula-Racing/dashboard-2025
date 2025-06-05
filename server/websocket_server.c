@@ -97,7 +97,7 @@ void* websocket_server(void* arg) {
     while (shared_state->running) {
         lws_callback_on_writable_all_protocol(context, &protocols[0]);
         lws_service(context, 100);  // 100 ms
-        usleep(50000);             // 100 ms sleep
+        usleep(20000);             // 100 ms sleep
     }
 
     lws_context_destroy(context);
