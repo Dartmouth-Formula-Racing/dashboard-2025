@@ -44,6 +44,9 @@ static int callback_can(struct lws *wsi, enum lws_callback_reasons reason,
                 "\"lap_time\": %.2f, "
                 "\"estimated_range\": %.2f, "
                 "\"traction_control\": %d, "
+                "\"bot\": %d, "
+                "\"brb\": %d, "
+                "\"bms\": %d, "
                 "\"acctemp\": %.1f"
                 "}",
                 vehicle_state.speed,
@@ -65,6 +68,9 @@ static int callback_can(struct lws *wsi, enum lws_callback_reasons reason,
                 vehicle_state.laptime,
                 vehicle_state.estimated_range,
                 vehicle_state.traction_control,
+                vehicle_state.bot,
+                vehicle_state.brb,
+                vehicle_state.bms,
                 vehicle_state.acctemp
             );
 

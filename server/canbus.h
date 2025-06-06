@@ -11,11 +11,11 @@ typedef struct {
     int imd;
     int bot;
     int brb;
-    int dcdc;
+    int dcdc; //Not in the web socket message right now
     int cvc_overflow;
     int cvc_time;
     int can_connected;
-    int temperaturesok;
+    int temperaturesok; // Not in the web socket message right now
     char drive_state[20];
     char vehicle_state[30];
     float leftinvtemp;
