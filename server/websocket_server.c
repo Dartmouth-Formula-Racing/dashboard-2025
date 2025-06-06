@@ -29,13 +29,21 @@ static int callback_can(struct lws *wsi, enum lws_callback_reasons reason,
                 "\"battery\": %.2f, "
                 "\"throttle\": %.1f, "
                 "\"rpm\": %d, "
-                "\"voltage\": %.2f, "
-                "\"current\": %.1f, "
+                "\"accumulator_voltage\": %.2f, "
+                "\"accumulator_current\": %.1f, "
                 "\"mileage\": %.3f, "
                 "\"drive_state\": \"%s\", "
                 "\"vehicle_state\": \"%s\", "
                 "\"leftinvtemp\": %.1f, "
                 "\"rightinvtemp\": %.1f, "
+                "\"canconnected\": %d, "
+                "\"imd\": %d, "
+                "\"cvc_overflow\": %d, "
+                "\"cvc_time\": %d, "
+                "\"lap\": %d, "
+                "\"lap_time\": %.2f, "
+                "\"estimated_range\": %.2f, "
+                "\"traction_control\": %d, "
                 "\"acctemp\": %.1f"
                 "}",
                 vehicle_state.speed,
@@ -49,6 +57,14 @@ static int callback_can(struct lws *wsi, enum lws_callback_reasons reason,
                 vehicle_state.vehicle_state,
                 vehicle_state.leftinvtemp,
                 vehicle_state.rightinvtemp,
+                vehicle_state.can_connected,
+                vehicle_state.imd,
+                vehicle_state.cvc_overflow,
+                vehicle_state.cvc_time,
+                vehicle_state.lap,
+                vehicle_state.laptime,
+                vehicle_state.estimated_range,
+                vehicle_state.traction_control,
                 vehicle_state.acctemp
             );
 

@@ -11,8 +11,11 @@ typedef struct {
     int imd;
     int bot;
     int brb;
+    int dcdc;
     int cvc_overflow;
     int cvc_time;
+    int can_connected;
+    int temperaturesok;
     char drive_state[20];
     char vehicle_state[30];
     float leftinvtemp;
@@ -22,9 +25,13 @@ typedef struct {
     int rpm;
     float speed;
     float mileage;
+    int lap;
+    float laptime;
     float accumulator_voltage;
     float accumulator_current;
     float battery_percentage;
+    float estimated_range;
+    int traction_control;
 } vehicle_state_t;
 
 typedef struct {

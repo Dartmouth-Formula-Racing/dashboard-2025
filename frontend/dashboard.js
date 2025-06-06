@@ -173,8 +173,8 @@ ws.onmessage = function(event) {
     batteryval_elm.innerHTML = data.battery.toFixed(1) + '%';
 
     // Update high voltage readings
-    hvvoltage_elm.innerHTML = data.voltage.toFixed(1) + ' V';
-    acccurrent_elm.innerHTML = data.current.toFixed(1) + ' A';
+    hvvoltage_elm.innerHTML = data.accumulator_voltage.toFixed(1) + ' V';
+    acccurrent_elm.innerHTML = data.accumulator_current.toFixed(1) + ' A';
     range_elm.innerHTML = data.estimated_range.toFixed(1) + ' mi';
 
     // Handle traction control status

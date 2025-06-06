@@ -46,7 +46,8 @@ static button_state_t drive_button = {1, 0, 1, 0, 1};      // Initialize with bu
 static button_state_t neutral_button = {1, 0, 1, 0, 1};
 static button_state_t reverse_button = {1, 0, 1, 0, 1};
 
-vehicle_state_t vehicle_state = {0};
+vehicle_state_t vehicle_state = {.can_connected = 1};
+// vehicle_state.can_connected = 1;
 void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_extended);
 void poll_buttons();  // New function for polling buttons
 int create_can_socket(); 
@@ -147,7 +148,7 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
                 case 1: strcpy(vehicle_state.vehicle_state, "Voltage Check"); break;
                 case 2: strcpy(vehicle_state.vehicle_state, "Wait for Precharge"); break;
                 case 3: strcpy(vehicle_state.vehicle_state, "Precharge Stage 1"); break;
-                case 4: strcpy(vehicle_state.vehicle_state, "Precharge Stage 2"); break;
+                 case 4: strcpy(vehicle_state.vehicle_state, "Precharge Stage 2"); break;
                 case 5: strcpy(vehicle_state.vehicle_state, "Precharge Stage 3"); break;
                 case 6: strcpy(vehicle_state.vehicle_state, "Not Ready to Drive"); break;
                 case 7: strcpy(vehicle_state.vehicle_state, "Buzzer"); break;
@@ -155,6 +156,7 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
                 case 9: strcpy(vehicle_state.vehicle_state, "Charging"); break;
                 default: strcpy(vehicle_state.vehicle_state, "Unknown"); break;
             }
+            printf(vehicle_state.vehicle_state);
             
             // Update BMS and IMD LEDs
             gpioWrite(BMS_LED_GPIO, vehicle_state.bms ? 0 : 1);
