@@ -175,9 +175,9 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
                                  (12 * 5280 * TRANSMISSION_RATIO);
             vehicle_state.mileage = ((data[6] << 8) | data[7]) / 1000.0f;
             
-            // printf("Throttle: %.1f%%, RPM: %d, Speed: %.1f mph, Mileage: %.3f mi\n",
-                   vehicle_state.throttle_position, vehicle_state.rpm, 
-                   vehicle_state.speed, vehicle_state.mileage);
+            //  printf("Throttle: %.1f%%, RPM: %d, Speed: %.1f mph, Mileage: %.3f mi\n",
+            //        vehicle_state.throttle_position, vehicle_state.rpm, 
+            //        vehicle_state.speed, vehicle_state.mileage);
         }
         else if (msg_id == CAN_BMS_BASE + 1) { // BMS pack voltage
             vehicle_state.accumulator_voltage = ((data[5] << 24) | (data[6] << 16) | 
@@ -586,7 +586,7 @@ int main() {
     uint32_t msg_id;
     uint8_t msg_data[8];
     uint8_t msg_len;
-    uint64_t last_button_poll = 0;
+    // uint64_t last_button_poll = 0;
     uint64_t last_button = 0;
 
     printf("Racing CAN System Starting...\n");
