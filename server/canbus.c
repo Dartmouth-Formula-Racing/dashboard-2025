@@ -175,7 +175,7 @@ void process_can_message(uint32_t msg_id, uint8_t* data, uint8_t len, int is_ext
                                  (12 * 5280 * TRANSMISSION_RATIO);
             vehicle_state.mileage = ((data[6] << 8) | data[7]) / 1000.0f;
             
-            printf("Throttle: %.1f%%, RPM: %d, Speed: %.1f mph, Mileage: %.3f mi\n",
+            // printf("Throttle: %.1f%%, RPM: %d, Speed: %.1f mph, Mileage: %.3f mi\n",
                    vehicle_state.throttle_position, vehicle_state.rpm, 
                    vehicle_state.speed, vehicle_state.mileage);
         }
@@ -587,7 +587,8 @@ int main() {
     uint8_t msg_data[8];
     uint8_t msg_len;
     uint64_t last_button_poll = 0;
-    
+    uint64_t last_button = 0;
+
     printf("Racing CAN System Starting...\n");
     
     // Set up signal handlers
@@ -638,13 +639,13 @@ int main() {
     
     // Main loop - check shutdown_requested flag
     while (!shutdown_requested && shared_state->running) {
-        uint64_t current_time = gpioTick();
+        // uint64_t current_time = gpioTick();
         
-        // Poll buttons every 50ms
-        if ((current_time - last_button_poll) >= BUTTON_POLL_INTERVAL) {
-            poll_buttons();
-            last_button_poll = current_time;
-        }
+        // // Poll buttons every 50ms
+        // if ((current_time - last_button_poll) >= BUTTON_POLL_INTERVAL) {
+        //     poll_buttons();
+        //     last_button_poll = current_time;
+        // }
         
         // Check for received CAN messages and process them
         if (receive_can_message(&msg_id, msg_data, &msg_len) == 0) {
@@ -653,6 +654,24 @@ int main() {
             
             // Process the message using our new function
             process_can_message(msg_id, msg_data, msg_len, is_extended);
+        }
+
+        struct timeval tv;
+        gettimeofday(&tv, 0);
+        if (tv.tv_usec - last_button >= 50000) {
+            if (!gpioRead(NEUTRAL_BUTTON_GPIO)) {
+                printf("N\n");
+                send_button_message(0);
+            }
+            else if (!gpioRead(DRIVE_BUTTON_GPIO)) {
+                printf("D\n");
+                send_button_message(1);
+            }
+            else if (!gpioRead(REVERSE_BUTTON_GPIO)) {
+                printf("R\n");
+               send_button_message(2);
+            }
+            last_button = tv.tv_usec;
         }
         
         gpioDelay(100);  // 100µs loop time
