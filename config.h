@@ -33,6 +33,11 @@
 // CAN frame constants
 #define CAN_MAX_DLC 8
 
+// I2C Addresses
+#define ADS1015_ADDR  0x48
+#define ADS1015_REG_CONVERSION 0x00
+#define ADS1015_REG_CONFIG     0x01
+
 // Math constants
 #define PI 3.1415926535
 #define TRANSMISSION_RATIO 4.7

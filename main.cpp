@@ -1,6 +1,7 @@
 #include <fcntl.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
+#include <linux/i2c-dev.h>
 #include <net/if.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
@@ -27,10 +28,13 @@ void parseFrame(const struct can_frame &frame);
 void on_open(websocketpp::connection_hdl h);
 void broadcastMessage(const std::string &msg);
 void sendDriveModeCommand(int can_socket, int mode);
+void sendTorqueRatioCommand(int can_socket, float r);
 int setup_can_socket(const char *ifname);
+int setupI2C(const char *ifname);
 void setupGPIO();
 void initializeCAN();
 void processButtons(int can_socket);
+void processI2C(int i2c_socket, int can_socket);
 
 server ws_server;
 websocketpp::connection_hdl currentConn;
@@ -53,6 +57,7 @@ int main() {
 
     // Setup SocketCAN on interface "can0".
     int can_socket = setup_can_socket("can0");
+    int i2c_socket = setupI2C("/dev/i2c-1");
 
     // Setup epoll for CAN message reading.
     int epoll_fd = epoll_create1(0);
@@ -99,6 +104,7 @@ int main() {
             }
         }
         processButtons(can_socket);
+        processI2C(i2c_socket, can_socket);
     }
     close(can_socket);
     close(epoll_fd);
@@ -192,6 +198,40 @@ void setupGPIO() {
     pinMode(CAN_STBY_GPIO, OUTPUT);
 }
 
+int setupI2C(const char *ifname) {
+    int fd = open(ifname, O_RDWR);
+
+    if (fd < 0) {
+        perror("open");
+        exit(1);
+    }
+    if (ioctl(fd, I2C_SLAVE, ADS1015_ADDR) < 0) {
+        perror("ioctl");
+        close(fd);
+        exit(1);
+    }
+
+    // Set up ADC
+    // Config: continuous mode, AIN0 single-ended, ±4.096V, 1600 SPS
+    uint16_t cfg = 0;
+    cfg |= (0b010 << 12);   // MUX: AIN0 vs GND
+    cfg |= (0b001 << 9);    // PGA: ±4.096 V
+    cfg |= (0 << 8);        // MODE: continuous
+    cfg |= (0b100 << 5);    // DR: 1600 SPS
+    cfg |= (0b11);          // Disable comparator
+
+    uint8_t buf[3];
+    buf[0] = ADS1015_REG_CONFIG;
+    buf[1] = (cfg >> 8) & 0xFF;
+    buf[2] = cfg & 0xFF;
+
+    if (write(fd, buf, 3) != 3) {
+        perror("write config");
+        exit(1);
+    }
+    return fd;
+}
+
 // Process button inputs. When a button is pressed, send a drive mode command.
 void processButtons(int can_socket) {
     auto now = std::chrono::steady_clock::now();
@@ -229,6 +269,45 @@ void processButtons(int can_socket) {
     }
 }
 
+void processI2C(int i2c_socket, int can_socket) {
+    auto now = std::chrono::steady_clock::now();
+
+    uint8_t reg = ADS1015_REG_CONVERSION;
+    if (write(i2c_socket, &reg, 1) != 1) {
+        perror("write (set pointer)");
+        return;
+    }
+
+    uint8_t data[2];
+    if (read(i2c_socket, data, 2) != 2) {
+        perror("read conversion");
+        return;
+    }
+
+    // Combine MSB/LSB
+    int16_t raw = (data[0] << 8) | data[1];
+    raw >>= 4;  // 12-bit left-justified
+
+    // Convert raw reading to voltage (±4.096V range)
+    const double FS = 4.096;
+    double voltage = (raw / 2047.0) * FS;
+
+    // Clamp and normalize 0–3.3 V → 0–1
+    float norm;
+    if (voltage > 3.5 || voltage < 0.0)
+        norm = 0.0f;
+    else
+        norm = static_cast<float>(std::clamp(voltage / 3.3, 0.0, 1.0));
+
+    static auto last_sent_time = std::chrono::steady_clock::now();
+
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_sent_time).count();
+    if (duration >= SEND_INTERVAL_MS) {
+        sendTorqueRatioCommand(can_socket, norm);
+        last_sent_time = now;
+    }
+}
+
 // Helper function to send a drive mode command CAN message.
 void sendDriveModeCommand(int can_socket, int mode) {
     struct can_frame frame;
@@ -246,6 +325,34 @@ void sendDriveModeCommand(int can_socket, int mode) {
         perror("write");
     } else {
         std::cout << "Sent drive mode command with state: " << mode << std::endl;
+    }
+}
+
+void sendTorqueRatioCommand(int can_socket, float r) {
+    struct can_frame frame;
+    std::memset(&frame, 0, sizeof(frame));
+
+    frame.can_id = CAN_BASE_ID + 3; // todo: make sure this isn't messing anything up
+
+// Set the extended identifier flag if required.
+    if (CAN_EXTENDED_ID) {
+        frame.can_id |= CAN_EFF_FLAG;
+    }
+
+    // scale 0.0-1.0 ratio to 1-1000
+    uint16_t torque_ratio = static_cast<uint16_t>(r * 1000.0f);
+
+    // Pack as 2 bytes, little-endian
+    frame.can_dlc = 2;
+    frame.data[0] = torque_ratio & 0xFF;        // Low byte
+    frame.data[1] = (torque_ratio >> 8) & 0xFF; // High byte
+
+    int nbytes = write(can_socket, &frame, sizeof(frame));
+    if (nbytes < 0) {
+        perror("write");
+    } else {
+        std::cout << "Sent torque ratio command: " << r
+                  << " (raw: " << torque_ratio << ")" << std::endl;
     }
 }
 
