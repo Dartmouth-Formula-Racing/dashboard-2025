@@ -241,11 +241,6 @@ void processButtons(int can_socket) {
     bool neutral_pressed = (digitalRead(BUTTON_NEUTRAL_PIN) == LOW);
     bool reverse_pressed = (digitalRead(BUTTON_REVERSE_PIN) == LOW);
 
-    // Update LEDs accordingly.
-    digitalWrite(LED_DRIVE_PIN, drive_pressed ? HIGH : LOW);
-    digitalWrite(LED_NEUTRAL_PIN, neutral_pressed ? HIGH : LOW);
-    digitalWrite(LED_REVERSE_PIN, reverse_pressed ? HIGH : LOW);
-
     // Determine drive mode with priority: neutral (0) > drive (1) > reverse (2).
     int mode = -1;
     if (neutral_pressed) {
@@ -384,8 +379,10 @@ void parseInverterTemps(const struct can_frame &frame, bool isLeft) {
     std::stringstream ss;
     if (isLeft)
         ss << "{\"leftinvtemp\": " << maxTemp << "}";
+        broadcastMessage(ss.str());
     else
         ss << "{\"rightinvtemp\": " << maxTemp << "}";
+        broadcastMessage(ss.str());
 }
 
 // Non-extended CAN message: Vehicle state (CAN_BASE_ID + 1)
@@ -402,12 +399,17 @@ void parseVehicleState(const struct can_frame &frame) {
     uint8_t cvc_time = frame.data[7];
 
     std::string drive;
+
+    // Update LEDs as well.
     if (drive_state == 0)
         drive = "NEUTRAL";
+        digitalWrite(LED_NEUTRAL_PIN, HIGH);
     else if (drive_state == 1)
         drive = "DRIVE";
+        digitalWrite(LED_DRIVE_PIN, HIGH);
     else if (drive_state == 2)
         drive = "REVERSE";
+        digitalWrite(LED_REVERSE_PIN, HIGH);
     else
         drive = "UNKNOWN";
 
