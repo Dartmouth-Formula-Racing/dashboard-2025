@@ -405,12 +405,18 @@ void parseVehicleState(const struct can_frame &frame) {
     if (drive_state == 0)
         drive = "NEUTRAL";
         digitalWrite(LED_NEUTRAL_PIN, HIGH);
+        digitalWrite(LED_DRIVE_PIN, LOW);
+        digitalWrite(LED_REVERSE_PIN, LOW);
     else if (drive_state == 1)
         drive = "DRIVE";
         digitalWrite(LED_DRIVE_PIN, HIGH);
+        digitalWrite(LED_NEUTRAL_PIN, LOW);
+        digitalWrite(LED_REVERSE_PIN, LOW);
     else if (drive_state == 2)
         drive = "REVERSE";
         digitalWrite(LED_REVERSE_PIN, HIGH);
+        digitalWrite(LED_DRIVE_PIN, LOW);
+        digitalWrite(LED_NEUTRAL_PIN, LOW);
     else
         drive = "UNKNOWN";
 
