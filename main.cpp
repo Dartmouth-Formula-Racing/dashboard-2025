@@ -28,7 +28,7 @@ void parseFrame(const struct can_frame &frame);
 void on_open(websocketpp::connection_hdl h);
 void broadcastMessage(const std::string &msg);
 void sendDriveModeCommand(int can_socket, int mode);
-void sendTorqueRatioCommand(int can_socket, float r);
+void sendPotentiometerRatioCommand(int can_socket, float r);
 int setup_can_socket(const char *ifname);
 int setupI2C(const char *ifname);
 void setupGPIO();
@@ -323,7 +323,8 @@ void sendDriveModeCommand(int can_socket, int mode) {
     }
 }
 
-void sendTorqueRatioCommand(int can_socket, float r) {
+// This takes the potentiometer value and sends it to the 
+void sendPotentiometerRatioCommand(int can_socket, float r) {
     struct can_frame frame;
     std::memset(&frame, 0, sizeof(frame));
 
