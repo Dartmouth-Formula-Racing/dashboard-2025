@@ -298,7 +298,7 @@ void processI2C(int i2c_socket, int can_socket) {
 
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_sent_time).count();
     if (duration >= SEND_INTERVAL_MS) {
-        sendTorqueRatioCommand(can_socket, norm);
+        sendPotentiometerRatioCommand(can_socket, norm);
         last_sent_time = now;
     }
 }
