@@ -400,7 +400,7 @@ void parseVehicleState(const struct can_frame &frame) {
 
     std::string drive;
 
-    // Update LEDs as well.
+    // Update LEDs as well
     if (drive_state == 0)
         drive = "NEUTRAL";
         digitalWrite(LED_NEUTRAL_PIN, HIGH);
